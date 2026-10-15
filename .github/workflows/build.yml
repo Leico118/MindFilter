@@ -32,15 +32,18 @@ jobs:
           "$SDKM" "platforms;android-36" "build-tools;35.0.0" > /dev/null || true
           base64 -d keystore/mindfilter-debug.jks.b64 > keystore/mindfilter-debug.jks
           gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon 2>&1 | tee build.log
-          cp app/build/outputs/apk/debug/app-debug.apk MindFilter-v0.1.apk
-          ls -l MindFilter-v0.1.apk
+          V=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "V=$V" >> "$GITHUB_ENV"
+          cp app/build/outputs/apk/debug/app-debug.apk "MindFilter-v$V.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk MindFilter.apk
       - uses: actions/upload-artifact@v4
-        with: { name: MindFilter-v0.1, path: MindFilter-v0.1.apk }
+        with: { name: "MindFilter-v${{ env.V }}", path: "MindFilter-v${{ env.V }}.apk" }
       - name: Publier
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           gh release delete v0.1 --cleanup-tag -y || true
-          gh release create v0.1 MindFilter-v0.1.apk -t "MindFilter 0.1" -n "APK compilé par GitHub Actions (exécution ${{ github.run_number }})"
+          gh release delete "v$V" --cleanup-tag -y || true
+          gh release create "v$V" "MindFilter-v$V.apk" MindFilter.apk --latest -t "MindFilter $V" -n "Version $V compilée par GitHub Actions (exécution ${{ github.run_number }})"
       - name: Signaler un échec
         if: failure()
         env: { GH_TOKEN: "${{ github.token }}" }
