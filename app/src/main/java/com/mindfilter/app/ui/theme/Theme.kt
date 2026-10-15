@@ -8,10 +8,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.mindfilter.app.data.AccentColor
 import com.mindfilter.app.data.ThemeMode
 
-/** Palette « verre liquide » : surfaces translucides, accent bleu iOS. */
+/** Palette « verre liquide » : surfaces translucides teintées par la couleur choisie. */
 data class GlassColors(
     val dark: Boolean,
     val bgTop: Color,
@@ -82,7 +83,11 @@ fun MindFilterTheme(mode: ThemeMode, accentColor: AccentColor = AccentColor.BLUE
     // Même rendu « verre » partout ; seule la teinte d'accent (et les halos du fond) change.
     val accent = Color(if (dark) accentColor.dark else accentColor.light)
     val base = if (dark) DarkGlass else LightGlass
+    // Le fond prend lui aussi la teinte : léger voile en haut, plus marqué en bas,
+    // pour éviter un bas d'écran presque noir.
     val glass = base.copy(
+        bgTop = lerp(base.bgTop, accent, if (dark) 0.10f else 0.06f),
+        bgBottom = lerp(base.bgBottom, accent, if (dark) 0.24f else 0.16f),
         accent = accent,
         onAccent = Color(if (dark) accentColor.onDark else accentColor.onLight),
         blobA = accent.copy(alpha = if (dark) 0.25f else 0.33f),

@@ -1,6 +1,17 @@
 package com.mindfilter.app.ui.screens
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -126,14 +137,6 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.ColorLens, g.accent, "Couleur de l'application", s.accent.label)
-                Spacer(Modifier.height(14.dp))
-                AccentPicker(s.accent) { a -> AppSettings.update { it.copy(accent = a) } }
-            }
-        }
-
-        item {
-            GlassCard {
                 Header(Icons.Filled.VisibilityOff, g.accent, "Apparence des masques")
                 Spacer(Modifier.height(12.dp))
                 Segmented(MaskStyle.entries.toList(), s.maskStyle, { it.label }) { v -> AppSettings.update { it.copy(maskStyle = v) } }
@@ -197,7 +200,51 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.5 · jauge de filtrage et couleurs")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.6 · couleurs verrouillables, teinte miel")
+            }
+        }
+
+        item {
+            // Verrouillé par défaut et à chaque retour sur l'écran : impossible de changer
+            // la couleur par un appui involontaire en faisant défiler les réglages.
+            var unlocked by remember { mutableStateOf(false) }
+            GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Header(Icons.Filled.ColorLens, g.accent, "Couleur de l'application", s.accent.label)
+                    }
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (unlocked) g.accent else g.chip)
+                            .clickable { unlocked = !unlocked }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (unlocked) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                            contentDescription = if (unlocked) "Verrouiller" else "Déverrouiller",
+                            tint = if (unlocked) g.onAccent else g.text,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (unlocked) "Verrouiller" else "Modifier",
+                            color = if (unlocked) g.onAccent else g.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                AccentPicker(s.accent, { a -> AppSettings.update { it.copy(accent = a) } }, enabled = unlocked)
+                if (!unlocked) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Appuyez sur « Modifier » pour changer de couleur. Le choix se reverrouille quand vous quittez les réglages.",
+                        color = g.textSecondary, fontSize = 12.sp,
+                    )
+                }
             }
         }
     }

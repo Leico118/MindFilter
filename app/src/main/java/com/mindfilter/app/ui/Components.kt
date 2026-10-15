@@ -44,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -74,6 +75,12 @@ fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
                 brush = Brush.radialGradient(listOf(g.blobB, Color.Transparent), center = Offset(size.width * 0.95f, size.height * 0.62f), radius = size.width * 0.85f),
                 radius = size.width * 0.85f,
                 center = Offset(size.width * 0.95f, size.height * 0.62f),
+            )
+            // Lueur en bas de l'écran, dans la couleur de l'application
+            drawCircle(
+                brush = Brush.radialGradient(listOf(g.blobA, Color.Transparent), center = Offset(size.width * 0.3f, size.height * 1.02f), radius = size.width * 1.0f),
+                radius = size.width * 1.0f,
+                center = Offset(size.width * 0.3f, size.height * 1.02f),
             )
         }
         content()
@@ -346,10 +353,18 @@ fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 9) {
 
 /** Pastilles de couleur pour choisir la teinte de l'application. */
 @Composable
-fun AccentPicker(selected: com.mindfilter.app.data.AccentColor, onSelect: (com.mindfilter.app.data.AccentColor) -> Unit) {
+fun AccentPicker(
+    selected: com.mindfilter.app.data.AccentColor,
+    onSelect: (com.mindfilter.app.data.AccentColor) -> Unit,
+    enabled: Boolean = true,
+) {
     val g = LocalGlass.current
     val all = com.mindfilter.app.data.AccentColor.entries
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val fade by androidx.compose.animation.core.animateFloatAsState(if (enabled) 1f else 0.35f, label = "picker")
+    Column(
+        Modifier.graphicsLayer { alpha = fade },
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         all.chunked(5).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 row.forEach { a ->
@@ -363,7 +378,7 @@ fun AccentPicker(selected: com.mindfilter.app.data.AccentColor, onSelect: (com.m
                             .padding(5.dp)
                             .clip(CircleShape)
                             .background(c)
-                            .clickable { onSelect(a) },
+                            .clickable(enabled = enabled) { onSelect(a) },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isSel) {
