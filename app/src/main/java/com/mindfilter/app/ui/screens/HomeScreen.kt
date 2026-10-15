@@ -1,6 +1,15 @@
 package com.mindfilter.app.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
+import com.mindfilter.app.data.CustomFilter
+import com.mindfilter.app.data.Sensitivity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -168,7 +177,7 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
             }
         }
 
-        item { SectionTitle("Essayer le moteur") }
+        item { SectionTitle("Vérifier une publication") }
         item { EngineTester() }
     }
 }
@@ -196,28 +205,92 @@ private fun PermissionRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
     }
 }
 
-/** Zone de test : tape une phrase et vois si elle serait masquée avec les réglages actuels. */
+/** Mots trop courants pour servir de mots-clés. */
+private val STOP_WORDS = setOf(
+    "avec", "dans", "pour", "mais", "sans", "sous", "leur", "leurs", "cette", "cela", "elle", "elles",
+    "nous", "vous", "ils", "sont", "était", "etait", "avait", "avoir", "être", "etre", "fait", "faire",
+    "plus", "moins", "très", "tres", "tout", "tous", "toute", "toutes", "comme", "quand", "depuis",
+    "après", "apres", "avant", "entre", "aussi", "encore", "alors", "donc", "parce", "chez", "votre",
+    "notre", "même", "meme", "quel", "quelle", "quels", "quelles", "dont", "ainsi", "jamais", "toujours",
+)
+
+/** Propose jusqu'à 4 mots significatifs d'un texte pour créer un filtre. */
+private fun suggestKeywords(text: String): List<String> =
+    text.lowercase()
+        .split(Regex("[^\\p{L}\\p{N}'’-]+"))
+        .map { it.trim('\'', '’', '-') }
+        .filter { it.length >= 5 && it !in STOP_WORDS }
+        .distinct()
+        .sortedByDescending { it.length }
+        .take(4)
+
+/**
+ * « Vérifier une publication » : collez le texte d'une publication pour savoir si
+ * MindFilter la masquerait, POURQUOI, et créer un filtre personnalisé en un geste.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EngineTester() {
     val g = LocalGlass.current
     val s by AppSettings.state.collectAsStateWithLifecycle()
-    var text by remember { mutableStateOf("Un sportif de 27 ans retrouvé sans vie pendant son sommeil.") }
-    val classifier = remember(s.enabledThemes, s.customFilters, s.sensitivity) {
-        KeywordClassifier(s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] }, s.customFilters, s.sensitivity)
-    }
-    val result = remember(text, classifier) { classifier.classify(text) }
+    var text by remember { mutableStateOf("") }
+    var showDialog by remember { mutableStateOf(false) }
+    val bringIntoView = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
 
-    GlassCard {
+    val enabledThemes = remember(s.enabledThemes) { s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] } }
+    val classifier = remember(s.enabledThemes, s.customFilters, s.sensitivity) {
+        KeywordClassifier(enabledThemes, s.customFilters, s.sensitivity)
+    }
+    val allThemesSameLevel = remember(s.sensitivity) {
+        KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), s.sensitivity)
+    }
+    val enabledStrict = remember(s.enabledThemes) {
+        KeywordClassifier(enabledThemes, emptyList(), Sensitivity.STRICT)
+    }
+
+    val trimmed = text.trim()
+    val result = remember(trimmed, classifier) { if (trimmed.length < 8) null else classifier.classify(trimmed) }
+    // Explication quand le texte n'est PAS masqué.
+    val explanation: String? = remember(trimmed, result, allThemesSameLevel, enabledStrict) {
+        when {
+            trimmed.length < 8 -> null
+            result != null -> null
+            else -> {
+                val other = allThemesSameLevel.classify(trimmed)
+                val strict = enabledStrict.classify(trimmed)
+                when {
+                    other != null -> "Ce texte parle de « ${other.label} », mais ce thème n'est pas coché dans Catégories."
+                    strict != null && s.sensitivity != Sensitivity.STRICT ->
+                        "Proche de « ${strict.label} », mais pas assez net pour le niveau « ${s.sensitivity.label} ». Il serait masqué en niveau plus élevé."
+                    else -> "Aucun de vos thèmes ne correspond à ce texte."
+                }
+            }
+        }
+    }
+
+    GlassCard(modifier = Modifier.bringIntoViewRequester(bringIntoView)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconBubble(Icons.Filled.Science, g.accent, 36.dp)
             Spacer(Modifier.width(10.dp))
-            Text("Tapez un titre ou une publication :", color = g.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Column {
+                Text("Collez ou tapez le texte d'une publication", color = g.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text("Pour savoir si elle serait masquée, et pourquoi.", color = g.textSecondary, fontSize = 13.sp)
+            }
         }
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { f ->
+                    if (f.isFocused) scope.launch {
+                        delay(350) // le temps que le clavier s'ouvre
+                        bringIntoView.bringIntoView()
+                    }
+                },
+            placeholder = { Text("Ex. : Attentat déjoué à Lyon, deux suspects interpellés", color = g.textSecondary) },
             shape = RoundedCornerShape(16.dp),
             minLines = 2,
             colors = OutlinedTextFieldDefaults.colors(
@@ -227,24 +300,48 @@ private fun EngineTester() {
                 unfocusedBorderColor = g.chip,
             ),
         )
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (result != null) Color(0xEB0B0B0D) else g.chip)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (result != null) {
-                Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Masqué · ${result.label}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            } else {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = g.positive, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Affiché normalement", color = g.text, fontSize = 14.sp)
+        if (trimmed.length >= 8) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (result != null) Color(0xEB0B0B0D) else g.chip)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (result != null) {
+                    Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Serait masquée · ${result.label}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                } else {
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = g.positive, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Serait affichée normalement", color = g.text, fontSize = 14.sp)
+                }
+            }
+            if (explanation != null) {
+                Spacer(Modifier.height(6.dp))
+                Text(explanation, color = g.textSecondary, fontSize = 13.sp)
+            }
+            if (result == null) {
+                Spacer(Modifier.height(12.dp))
+                PillButton("Masquer les publications avec ces mots", Modifier.fillMaxWidth()) { showDialog = true }
             }
         }
+    }
+
+    if (showDialog) {
+        val kws = suggestKeywords(trimmed)
+        FilterDialog(
+            initial = CustomFilter(name = kws.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Mon filtre", keywords = kws),
+            isNew = true,
+            onDismiss = { showDialog = false },
+            onSave = {
+                AppSettings.upsertFilter(it)
+                showDialog = false
+                text = ""
+            },
+        )
     }
 }

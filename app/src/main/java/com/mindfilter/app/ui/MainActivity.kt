@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -42,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,7 +104,15 @@ private fun MindFilterRoot(resumeTick: Int) {
     BackHandler(enabled = openCategory != null) { openCategory = null }
     BackHandler(enabled = openCategory == null && tab != 0) { tab = 0 }
 
-    Box(Modifier.fillMaxSize()) {
+    // Clavier ouvert : tout l'écran remonte au-dessus du clavier et la barre d'onglets
+    // se cache pour laisser la place ; elle revient quand le clavier se ferme.
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
         AnimatedContent(
             targetState = openCategory to tab,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -115,7 +127,7 @@ private fun MindFilterRoot(resumeTick: Int) {
                 else -> SettingsScreen(resumeTick)
             }
         }
-        if (openCategory == null) {
+        if (openCategory == null && !imeVisible) {
             GlassTabBar(
                 selected = tab,
                 onSelect = { tab = it },

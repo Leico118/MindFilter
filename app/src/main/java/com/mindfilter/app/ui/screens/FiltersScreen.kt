@@ -108,7 +108,12 @@ fun FiltersScreen() {
 }
 
 @Composable
-private fun FilterDialog(initial: CustomFilter?, onDismiss: () -> Unit, onSave: (CustomFilter) -> Unit) {
+internal fun FilterDialog(
+    initial: CustomFilter?,
+    onDismiss: () -> Unit,
+    onSave: (CustomFilter) -> Unit,
+    isNew: Boolean = initial == null,
+) {
     val g = LocalGlass.current
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var keywords by remember { mutableStateOf(initial?.keywords?.joinToString(", ") ?: "") }
@@ -124,7 +129,7 @@ private fun FilterDialog(initial: CustomFilter?, onDismiss: () -> Unit, onSave: 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(28.dp),
-        title = { Text(if (initial == null) "Nouveau filtre" else "Modifier le filtre") },
+        title = { Text(if (isNew) "Nouveau filtre" else "Modifier le filtre") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(

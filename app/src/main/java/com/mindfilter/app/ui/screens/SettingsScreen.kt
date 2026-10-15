@@ -177,7 +177,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.2 · 5 niveaux, humour et fiction reconnus")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.3 · clavier corrigé, vérification des publications")
             }
         }
     }
