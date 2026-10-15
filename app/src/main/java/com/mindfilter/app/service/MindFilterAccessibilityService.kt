@@ -122,10 +122,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
                         if (overlay.count > 0) overlay.offsetAll(-dx, 0)
                     }
                 }
-                requestScan(60)
+                requestScan(25)
             }
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> requestScan(30)
-            else -> requestScan(110)
+            AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> onClickEvent(event)
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                onWindowChanged()
+                requestScan(20)
+            }
+            else -> requestScan(60)
         }
     }
 
@@ -134,7 +138,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (scanPending) return
         scanPending = true
         val sinceLast = System.currentTimeMillis() - lastScanAt
-        val wait = maxOf(delayMs, 70L - sinceLast).coerceAtLeast(0L)
+        val wait = maxOf(delayMs, 45L - sinceLast).coerceAtLeast(0L)
         workerHandler.postDelayed(scanRunnable, wait)
     }
 
@@ -187,7 +191,6 @@ class MindFilterAccessibilityService : AccessibilityService() {
             MaskStyle.AUTO -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
-        val touchable = s.touchMode == TouchMode.PROTECT
         main.post {
             if (!settings.protectionEnabled) {
                 overlay.clear()
@@ -199,7 +202,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val placed = if (lateX == 0 && lateY == 0) targets else targets.map { t ->
                     t.copy(rect = Rect(t.rect).apply { offset(-lateX, -lateY) })
                 }
-                val created = overlay.render(placed, dark, touchable)
+                val created = overlay.render(placed, dark)
                 if (created > 0) ServiceStatus.maskedThisSession.value += created
                 if (overlay.count > 0) startExitWatch()
             }
@@ -268,128 +271,52 @@ class MindFilterAccessibilityService : AccessibilityService() {
     }
 
     // ------------------------------------------------------------------------------
-    // Relais du défilement en direct (mode « Protégé »)
+    // Défilement natif + protection contre les appuis (mode « Protégé »)
     // ------------------------------------------------------------------------------
     //
-    // Un appui sur un masque est absorbé (la publication ne peut pas s'ouvrir). Dès que
-    // le doigt GLISSE, les masques deviennent transparents aux gestes et le mouvement est
-    // retransmis à l'application par petits morceaux successifs (« gestes continus »
-    // d'Android), au fil du mouvement : la page défile sous le doigt, presque sans délai.
+    // Android annule tout geste envoyé par un service d'accessibilité dès que le doigt
+    // touche l'écran : impossible de relayer un glissement en direct. Les masques laissent
+    // donc passer TOUS les gestes (défilement 100 % natif), et en mode « Protégé », si un
+    // appui atteint une publication masquée et ouvre un nouvel écran, MindFilter le referme
+    // aussitôt (retour arrière).
 
     private val scrollAccumY = AtomicInteger(0)
     private val scrollAccumX = AtomicInteger(0)
 
+    /** Aucun relais : les masques sont traversables. */
     private val dragRelay = object : DragRelay {
-        override fun onDragStart(first: TouchPoint) = streamStart(first)
-        override fun onDragMove(p: TouchPoint) = streamMove(p)
-        override fun onDragEnd(last: TouchPoint) = streamEnd(last)
+        override fun onDragStart(first: TouchPoint) {}
+        override fun onDragMove(p: TouchPoint) {}
+        override fun onDragEnd(last: TouchPoint) {}
     }
 
-    private var streamActive = false
-    private var streamInFlight = false
-    private var streamEnding = false
-    private var streamFinishing = false
-    private var streamLast: TouchPoint? = null
-    private var streamStroke: GestureDescription.StrokeDescription? = null
-    private val streamPending = ArrayList<TouchPoint>()
+    /** Jusqu'à quand un nouvel écran ouvert doit être refermé (appui sur un masque). */
+    private var guardUntil = 0L
 
-    private fun streamStart(first: TouchPoint) {
-        if (streamActive) return
-        streamActive = true
-        streamEnding = false
-        streamFinishing = false
-        streamInFlight = false
-        streamStroke = null
-        streamLast = first
-        streamPending.clear()
-        replayingGesture = true
-        overlay.setTouchable(false)
-        // Laisse au système le temps d'appliquer la transparence des masques.
-        main.postDelayed({ pumpStream() }, 16)
-    }
-
-    private fun streamMove(p: TouchPoint) {
-        if (!streamActive) return
-        streamPending.add(p)
-        if (!streamInFlight) pumpStream()
-    }
-
-    private fun streamEnd(last: TouchPoint) {
-        if (!streamActive) return
-        streamPending.add(last)
-        streamEnding = true
-        if (!streamInFlight) pumpStream()
-    }
-
-    private fun pumpStream() {
-        if (!streamActive || streamInFlight) return
-        val from = streamLast ?: return
-        if (streamPending.isEmpty()) {
-            if (!streamEnding) return
-            streamPending.add(TouchPoint(from.x, from.y + 1f, from.t + 8))
-        }
-        val dm = resources.displayMetrics
-        val maxX = dm.widthPixels - 1f
-        val maxY = dm.heightPixels - 1f
-        val path = Path().apply { moveTo(from.x.coerceIn(0f, maxX), from.y.coerceIn(0f, maxY)) }
-        var moved = false
-        for (p in streamPending) {
-            val x = p.x.coerceIn(0f, maxX)
-            val y = p.y.coerceIn(0f, maxY)
-            if (x != from.x || y != from.y) moved = true
-            path.lineTo(x, y)
-        }
-        if (!moved) {
-            if (!streamEnding) {
-                streamPending.clear()
-                return
-            }
-            path.lineTo(from.x.coerceIn(0f, maxX), (from.y + 1f).coerceIn(0f, maxY))
-        }
-        val to = streamPending.last()
-        val duration = (to.t - from.t).coerceIn(8L, 250L)
-        val willContinue = !streamEnding
-        val stroke = try {
-            streamStroke?.continueStroke(path, 0, duration, willContinue)
-                ?: GestureDescription.StrokeDescription(path, 0, duration, willContinue)
+    private fun onClickEvent(event: AccessibilityEvent) {
+        if (settings.touchMode != TouchMode.PROTECT || overlay.count == 0) return
+        val src = try {
+            event.source
         } catch (e: Exception) {
-            finishStream()
-            return
-        }
-        streamLast = to
-        streamPending.clear()
-        streamStroke = stroke
-        streamFinishing = !willContinue
-        streamInFlight = true
-        val ok = try {
-            dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    streamInFlight = false
-                    if (streamFinishing) finishStream() else pumpStream()
-                }
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    streamInFlight = false
-                    finishStream()
-                }
-            }, main)
-        } catch (e: Exception) {
-            false
-        }
-        if (!ok) {
-            streamInFlight = false
-            finishStream()
-        }
+            null
+        } ?: return
+        val r = Rect()
+        src.getBoundsInScreen(r)
+        if (r.isEmpty) return
+        val inside = overlay.hits(r.centerX(), r.centerY()) ||
+            (overlay.hits(r.left + r.width() / 4, r.top + r.height() / 4) &&
+                overlay.hits(r.right - r.width() / 4, r.bottom - r.height() / 4))
+        if (inside) guardUntil = System.currentTimeMillis() + 1500
     }
 
-    private fun finishStream() {
-        streamActive = false
-        streamStroke = null
-        streamPending.clear()
-        main.postDelayed({
-            replayingGesture = false
-            if (::overlay.isInitialized) overlay.setTouchable(settings.touchMode == TouchMode.PROTECT)
-            requestScan(0)
-        }, 120)
+    private fun onWindowChanged() {
+        if (guardUntil != 0L && System.currentTimeMillis() <= guardUntil) {
+            guardUntil = 0L
+            // La publication masquée a été ouverte par un appui : on revient en arrière.
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        } else {
+            guardUntil = 0L
+        }
     }
 
     override fun onInterrupt() {

@@ -200,7 +200,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.9 · défilement fluide sur les masques")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.2.0 · défilement natif, masques anticipés")
             }
         }
 

@@ -15,7 +15,11 @@ class SNode(
     var fullText: String = ""
 }
 
-data class MaskTarget(val key: String, val rect: Rect, val label: String)
+/**
+ * [rect] : zone complète estimée de la publication (peut dépasser du bord de l'écran) ;
+ * [clip] : zone visible de la liste qui la contient. Le masque affiché = rect ∩ clip.
+ */
+data class MaskTarget(val key: String, val rect: Rect, val clip: Rect, val label: String)
 
 /**
  * Parcourt l'arbre d'accessibilité de l'application au premier plan et décide
@@ -110,12 +114,19 @@ object ScreenScanner {
     }
 
     private fun add(n: SNode, clip: Rect, label: String, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {
-        val r = Rect(n.bounds)
-        if (!r.intersect(clip)) return
-        if (r.height() < 24 || r.width() < 48) return
+        val visible = Rect(n.bounds)
+        if (!visible.intersect(clip)) return
+        if (visible.height() < 24 || visible.width() < 48) return
+        // Android ne fournit que la partie visible d'une publication coupée par le bord de
+        // la liste. On prolonge le masque au-delà de ce bord : quand la publication entre
+        // dans l'écran en défilant, elle est déjà entièrement couverte.
+        val full = Rect(n.bounds)
+        val extra = clip.height()
+        if (full.bottom >= clip.bottom - 3) full.bottom += extra
+        if (full.top <= clip.top + 3) full.top -= extra
         var key = n.className + "|" + n.fullText.take(160).hashCode()
         var i = 1
         while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
-        out.add(MaskTarget(key, r, label))
+        out.add(MaskTarget(key, full, Rect(clip), label))
     }
 }

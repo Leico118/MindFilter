@@ -18,18 +18,17 @@ class MaskOverlayManager(
     private val context: Context,
     private val relay: DragRelay,
 ) {
-    private class Entry(val view: MaskView, val params: WindowManager.LayoutParams, val rect: Rect)
+    private class Entry(val view: MaskView, val params: WindowManager.LayoutParams, val rect: Rect, val clip: Rect)
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val entries = LinkedHashMap<String, Entry>()
-    private var touchable = true
+    private var touchable = false
     private var dark = false
 
     val count: Int get() = entries.size
 
     /** Affiche exactement [targets] ; renvoie le nombre de masques nouvellement créés. */
-    fun render(targets: List<MaskTarget>, darkStyle: Boolean, touchableMasks: Boolean): Int {
-        if (touchableMasks != touchable) setTouchable(touchableMasks)
+    fun render(targets: List<MaskTarget>, darkStyle: Boolean): Int {
         dark = darkStyle
         var created = 0
         val wanted = HashSet<String>(targets.size)
@@ -40,7 +39,10 @@ class MaskOverlayManager(
                 if (add(t)) created++
             } else {
                 e.view.setDark(darkStyle)
-                if (e.rect != t.rect) move(e, t.rect)
+                if (e.rect != t.rect || e.clip != t.clip) {
+                    e.clip.set(t.clip)
+                    move(e, t.rect)
+                }
             }
         }
         val stale = entries.keys.filter { it !in wanted }
@@ -82,16 +84,17 @@ class MaskOverlayManager(
 
     private fun add(t: MaskTarget): Boolean {
         val view = MaskView(context, dark, relay)
+        val shown = visiblePart(t.rect, t.clip)
         val p = WindowManager.LayoutParams(
-            t.rect.width(),
-            t.rect.height(),
+            shown.width().coerceAtLeast(1),
+            shown.height().coerceAtLeast(1),
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             flags(touchable),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = t.rect.left
-            y = t.rect.top
+            x = shown.left
+            y = shown.top
             title = "MindFilterMask"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -107,20 +110,38 @@ class MaskOverlayManager(
             wm.addView(view, p)
             view.animate().alpha(1f).scaleX(1f).scaleY(1f)
                 .setDuration(200).setInterpolator(DecelerateInterpolator()).start()
-            entries[t.key] = Entry(view, p, Rect(t.rect))
+            if (shown.isEmpty) view.visibility = android.view.View.INVISIBLE
+            entries[t.key] = Entry(view, p, Rect(t.rect), Rect(t.clip))
             true
         } catch (e: Exception) {
             false
         }
     }
 
-    private fun move(e: Entry, r: Rect) {
-        e.rect.set(r)
-        e.params.x = r.left
-        e.params.y = r.top
-        e.params.width = r.width()
-        e.params.height = r.height()
+    /** Partie de la publication à couvrir : sa zone complète, limitée à la liste visible. */
+    private fun visiblePart(full: Rect, clip: Rect): Rect {
+        val r = Rect(full)
+        return if (r.intersect(clip)) r else Rect(clip.left, clip.top, clip.left, clip.top)
+    }
+
+    private fun move(e: Entry, full: Rect) {
+        e.rect.set(full)
+        val shown = visiblePart(full, e.clip)
+        if (shown.isEmpty) {
+            e.view.visibility = android.view.View.INVISIBLE
+            return
+        }
+        e.view.visibility = android.view.View.VISIBLE
+        e.params.x = shown.left
+        e.params.y = shown.top
+        e.params.width = shown.width()
+        e.params.height = shown.height()
         safeUpdate(e)
+    }
+
+    /** Le point (coordonnées écran) est-il sous un masque visible ? */
+    fun hits(x: Int, y: Int): Boolean = entries.values.any { e ->
+        e.view.visibility == android.view.View.VISIBLE && visiblePart(e.rect, e.clip).contains(x, y)
     }
 
     private fun safeUpdate(e: Entry) {
