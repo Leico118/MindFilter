@@ -239,8 +239,8 @@ private fun EngineTester() {
     val scope = rememberCoroutineScope()
 
     val enabledThemes = remember(s.enabledThemes) { s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] } }
-    val classifier = remember(s.enabledThemes, s.customFilters, s.restrictionLevel) {
-        KeywordClassifier(enabledThemes, s.customFilters, s.restrictionLevel)
+    val classifier = remember(s.enabledThemes, s.customFilters, s.restrictionLevel, s.exceptions) {
+        KeywordClassifier(enabledThemes, s.customFilters, s.restrictionLevel, s.exceptions)
     }
     val allThemesSameLevel = remember(s.restrictionLevel) {
         KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), s.restrictionLevel)
@@ -252,14 +252,17 @@ private fun EngineTester() {
     val trimmed = text.trim()
     val result = remember(trimmed, classifier) { if (trimmed.length < 8) null else classifier.classify(trimmed) }
     // Explication quand le texte n'est PAS masqué.
-    val explanation: String? = remember(trimmed, result, allThemesSameLevel, enabledStrict) {
+    val explanation: String? = remember(trimmed, result, classifier, allThemesSameLevel, enabledStrict) {
         when {
             trimmed.length < 8 -> null
             result != null -> null
             else -> {
                 val other = allThemesSameLevel.classify(trimmed)
                 val strict = enabledStrict.classify(trimmed)
+                val exception = classifier.exceptionHit(trimmed)
                 when {
+                    exception != null && (other != null || strict != null) ->
+                        "Votre exception « $exception » (onglet Filtres) empêche le masquage."
                     other != null -> "Ce texte parle de « ${other.label} », mais ce thème n'est pas coché dans Catégories."
                     strict != null && s.restrictionLevel < RestrictionLevels.MAX - 1 ->
                         "Proche de « ${strict.label} », mais pas assez net pour votre niveau de filtrage (${RestrictionLevels.name(s.restrictionLevel)}). Il serait masqué avec un niveau plus élevé."

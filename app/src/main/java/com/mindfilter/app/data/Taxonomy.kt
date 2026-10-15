@@ -805,8 +805,8 @@ private fun catAdulte(): Category = Category(
             ),
             t(
                 "adulte.explicite.erotisme", "Érotisme et lingerie",
-                s("erotique*", "erotisme", "lingerie sexy", "photo sexy", "photos sexy", "pose sexy", "boudoir"),
-                m("lingerie", "sensuel*", "sensuelle*", "deshabille*"),
+                s("erotique*", "erotisme", "lingerie sexy", "boudoir"),
+                m("lingerie", "sensuel*", "sensuelle*", "deshabille*", "photo sexy", "photos sexy", "pose sexy"),
             ),
         ),
         sub(
@@ -817,7 +817,10 @@ private fun catAdulte(): Category = Category(
             ),
             t(
                 "adulte.anime.ecchi", "Ecchi",
-                s("ecchi", "fanservice", "fan service", "oppai", "lewd", "lewds", "waifu nsfw"),
+                s("ecchi", "waifu nsfw", "ecchi manga", "manga ecchi", "anime ecchi"),
+                // Mots ambigus (souvent dans un simple nom de groupe ou de page) : ils ne
+                // comptent qu'aux niveaux élevés, et il faut un deuxième indice.
+                m("fanservice", "fan service", "oppai", "lewd", "lewds"),
             ),
             t(
                 "adulte.anime.yuri", "Yuri",

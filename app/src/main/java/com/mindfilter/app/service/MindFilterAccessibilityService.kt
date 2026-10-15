@@ -74,7 +74,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val rebuild = classifier == null ||
                     s.enabledThemes != settings.enabledThemes ||
                     s.customFilters != settings.customFilters ||
-                    s.restrictionLevel != settings.restrictionLevel
+                    s.restrictionLevel != settings.restrictionLevel ||
+                    s.exceptions != settings.exceptions
                 val filterChanged = s.monitoredPackages != settings.monitoredPackages ||
                     s.protectionEnabled != settings.protectionEnabled
                 settings = s
@@ -82,7 +83,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 if (rebuild) {
                     workerHandler.post {
                         val themes = s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] }
-                        classifier = KeywordClassifier(themes, s.customFilters, s.restrictionLevel)
+                        classifier = KeywordClassifier(themes, s.customFilters, s.restrictionLevel, s.exceptions)
                         requestScan(0)
                     }
                 } else {

@@ -1,6 +1,16 @@
 package com.mindfilter.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.text.input.ImeAction
+import com.mindfilter.app.data.RestrictionLevels
+import com.mindfilter.app.data.TaxonomyIndex
+import com.mindfilter.app.engine.KeywordClassifier
+import com.mindfilter.app.ui.SectionTitle
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -59,7 +69,8 @@ fun FiltersScreen() {
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ScreenTitle("Filtres personnalisés", "Vos propres mots-clés et expressions.") }
+        item { ScreenTitle("Filtres personnalisés", "Ce que vous voulez masquer, et ce que vous voulez toujours voir.") }
+        item { SectionTitle("Masquer") }
         item { PillButton("Nouveau filtre", Modifier.fillMaxWidth()) { creating = true } }
         if (s.customFilters.isEmpty()) {
             item {
@@ -96,6 +107,8 @@ fun FiltersScreen() {
                 }
             }
         }
+        item { SectionTitle("Toujours afficher") }
+        item { ExceptionsCard(s.exceptions) }
     }
 
     if (creating || editing != null) {
@@ -175,4 +188,76 @@ internal fun FilterDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
     )
+}
+
+/**
+ * Exceptions : mots ou expressions qui ne sont JAMAIS masqués, même si le thème
+ * correspondant est coché. Ex. : « tremblement de terre » avec « Catastrophes » coché.
+ */
+@Composable
+private fun ExceptionsCard(exceptions: List<String>) {
+    val g = LocalGlass.current
+    var input by remember { mutableStateOf("") }
+    val coverage = remember(exceptions) {
+        KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), RestrictionLevels.MAX, exceptions).exceptionCoverage()
+    }
+    val add = {
+        input.split(',', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() }.forEach { AppSettings.addException(it) }
+        input = ""
+    }
+
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconBubble(Icons.Filled.Visibility, g.positive, 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Mots à ne jamais masquer", color = g.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Une publication qui contient l'un de ces mots reste visible, même si son thème est coché.",
+                    color = g.textSecondary, fontSize = 13.sp,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Ex. : tremblement de terre", color = g.textSecondary) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { add() }),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = g.text,
+                    unfocusedTextColor = g.text,
+                    focusedBorderColor = g.accent,
+                    unfocusedBorderColor = g.chip,
+                ),
+            )
+            Spacer(Modifier.width(8.dp))
+            PillButton("Ajouter", filled = input.isNotBlank()) { add() }
+        }
+        if (exceptions.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            exceptions.forEach { e ->
+                val themes = coverage[e].orEmpty()
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(e, color = g.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            if (themes.isEmpty()) "Ne correspond à aucun thème pour l'instant"
+                            else "Toujours visible, même avec : " + themes.joinToString(", "),
+                            color = if (themes.isEmpty()) g.textSecondary else g.positive,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    IconButton(onClick = { AppSettings.removeException(e) }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Retirer", tint = g.textSecondary)
+                    }
+                }
+            }
+        }
+    }
 }

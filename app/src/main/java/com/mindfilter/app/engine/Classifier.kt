@@ -123,6 +123,8 @@ class KeywordClassifier(
     themes: Collection<Theme>,
     customFilters: List<CustomFilter>,
     restrictionLevel: Int,
+    /** Mots « toujours afficher » saisis par l'utilisateur. */
+    exceptions: List<String> = emptyList(),
 ) : ContentClassifier {
 
     private val level = levelOf(restrictionLevel)
@@ -137,6 +139,10 @@ class KeywordClassifier(
     }
 
     val isEmpty: Boolean
+
+    private class UserException(val raw: String, val regex: Regex, val coveredThemes: Set<String>)
+
+    private val userExceptions: List<UserException>
 
     init {
         val list = ArrayList<CompiledTheme>()
@@ -167,6 +173,49 @@ class KeywordClassifier(
         }
         compiled = list
         isEmpty = list.isEmpty()
+        userExceptions = exceptions.mapNotNull { e ->
+            val rx = compileException(e) ?: return@mapNotNull null
+            // Thèmes « couverts » par l'exception : ceux dont le lexique reconnaît ce mot.
+            // « tremblement de terre » couvre le thème Séismes, donc un texte qui contient
+            // l'exception n'est plus masqué au titre des séismes, même s'il dit aussi « séisme ».
+            UserException(e, rx, themesMatching(TextNormalizer.normalize(e)))
+        }
+    }
+
+    /** Thèmes (cochés) dont au moins une règle reconnaît ce texte, sans condition de distance. */
+    private fun themesMatching(norm: String): Set<String> {
+        if (norm.isBlank()) return emptySet()
+        val out = HashSet<String>()
+        for (t in compiled) {
+            if (t.fixedThreshold != null) continue
+            val hit = t.rules.any { r -> r.groups.all { g -> g.any { it.regex.containsMatchIn(norm) } } }
+            if (hit) out.add(t.id)
+        }
+        return out
+    }
+
+    /** Mot ou expression d'exception, tolérant au pluriel (« tremblements » = « tremblement »). */
+    private fun compileException(raw: String): Regex? {
+        val words = TextNormalizer.normalize(raw, keepStar = true).split(' ').filter { it.isNotBlank() }
+        if (words.isEmpty()) return null
+        val body = words.joinToString(" ") { w ->
+            when {
+                w.endsWith("*") -> Regex.escape(w.trimEnd('*')) + "[a-z0-9]*"
+                w.length > 3 && (w.endsWith("s") || w.endsWith("x")) -> Regex.escape(w.dropLast(1)) + "[sx]?"
+                else -> Regex.escape(w) + "[sx]?"
+            }
+        }
+        return Regex("(?<![a-z0-9])$body(?![a-z0-9])")
+    }
+
+    /** Pour l'écran Filtres : pour chaque exception, les noms des thèmes qu'elle annule. */
+    fun exceptionCoverage(): Map<String, List<String>> =
+        userExceptions.associate { ex -> ex.raw to compiled.filter { it.id in ex.coveredThemes }.map { it.label } }
+
+    /** L'exception qui a empêché le masquage de ce texte, s'il y en a une. */
+    fun exceptionHit(text: String): String? {
+        val norm = TextNormalizer.normalize(text)
+        return userExceptions.firstOrNull { it.regex.containsMatchIn(norm) }?.raw
     }
 
     private fun alt(raw: String): CompiledAlt? = altCache.getOrPut(raw) { CompiledAlt.compile(raw) }
@@ -185,6 +234,14 @@ class KeywordClassifier(
         // mot-repère : une association de mots ne peut pas enjamber deux phrases.
         var norm = TextNormalizer.normalize(SENTENCE_END.replace(raw, " $SEP "))
         for (ex in exclusions) if (ex.containsMatchIn(norm)) norm = ex.replace(norm, " ")
+        // Exceptions de l'utilisateur : on retire le mot du texte et on écarte les thèmes qu'il couvre.
+        val skipThemes = HashSet<String>()
+        for (ex in userExceptions) {
+            if (ex.regex.containsMatchIn(norm)) {
+                norm = ex.regex.replace(norm, " ")
+                skipThemes.addAll(ex.coveredThemes)
+            }
+        }
         norm = norm.replace(MULTI_SPACE, " ").trim()
         if (norm.length < 6) return null
 
@@ -230,6 +287,7 @@ class KeywordClassifier(
         for (t in compiled) {
             val custom = t.fixedThreshold != null
             if (blocked && !custom && !t.ignoreContext) continue
+            if (!custom && t.id in skipThemes) continue
             var score = 0
             for (rule in t.rules) {
                 if (matches(rule, ::positions)) score += rule.weight

@@ -119,6 +119,8 @@ data class SettingsState(
     val touchMode: TouchMode = TouchMode.PROTECT,
     val autoActivation: Boolean = true,
     val customFilters: List<CustomFilter> = emptyList(),
+    /** Mots « toujours afficher » : ils annulent les thèmes cochés. */
+    val exceptions: List<String> = emptyList(),
 ) {
     val activeCategoryCount: Int
         get() = TAXONOMY.count { c -> c.allThemes.any { it.id in enabledThemes } }
@@ -181,6 +183,7 @@ object AppSettings {
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
             customFilters = parseFilters(prefs.getString("customFilters", null)),
+            exceptions = parseStrings(prefs.getString("exceptions", null)),
         )
     }
 
@@ -199,6 +202,7 @@ object AppSettings {
             .putString("touchMode", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
             .putString("customFilters", serializeFilters(s.customFilters))
+            .putString("exceptions", JSONArray(s.exceptions).toString())
             .apply()
     }
 
@@ -227,6 +231,21 @@ object AppSettings {
         val i = list.indexOfFirst { it.id == f.id }
         if (i >= 0) list[i] = f else list.add(f)
         s.copy(customFilters = list)
+    }
+
+    fun addException(word: String) = update { s ->
+        val w = word.trim()
+        if (w.isEmpty() || s.exceptions.any { it.equals(w, ignoreCase = true) }) s
+        else s.copy(exceptions = s.exceptions + w)
+    }
+
+    fun removeException(word: String) = update { s -> s.copy(exceptions = s.exceptions - word) }
+
+    private fun parseStrings(json: String?): List<String> = try {
+        if (json.isNullOrBlank()) emptyList()
+        else JSONArray(json).let { a -> (0 until a.length()).map { a.getString(it) } }
+    } catch (e: Exception) {
+        emptyList()
     }
 
     fun deleteFilter(id: String) = update { s -> s.copy(customFilters = s.customFilters.filterNot { it.id == id }) }

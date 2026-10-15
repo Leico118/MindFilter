@@ -200,7 +200,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.7 · catégorie Contenus pour adultes")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.8 · mots à ne jamais masquer")
             }
         }
 
