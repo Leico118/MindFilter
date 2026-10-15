@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Icône adaptative SANS couche <monochrome> : Android n'a aucune version recolorable
+    à appliquer, l'icône garde ses couleurs d'origine (fond noir, œil barré doré).
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_bg" />
     <foreground android:drawable="@drawable/ic_launcher_art" />
-    <!-- Icônes à thème (Android 13+) : version monochrome de l'œil barré. -->
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>
