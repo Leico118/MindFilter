@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Fond de l'icône : noir profond légèrement dégradé, comme le modèle fourni. -->
+<!-- Fond de l'icône : noir uni, identique au modèle fourni. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient
-        android:angle="270"
-        android:startColor="#FF161618"
-        android:endColor="#FF09090B" />
+    <solid android:color="#FF0B0B0B" />
 </shape>

@@ -200,7 +200,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.2.2 · icône aux couleurs d'origine")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.2.3 · nouvelle icône")
             }
         }
 
