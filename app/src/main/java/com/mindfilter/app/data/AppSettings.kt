@@ -9,10 +9,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-enum class Sensitivity(val label: String, val threshold: Int, val description: String) {
-    LIGHT("Léger", 4, "Masque seulement les contenus clairement liés aux sujets choisis."),
-    NORMAL("Normal", 3, "Bon équilibre entre protection et faux positifs."),
-    STRICT("Strict", 2, "Masque aussi les contenus simplement évocateurs."),
+enum class Sensitivity(val label: String, val description: String) {
+    VERY_LIGHT("Très léger", "Seulement les mots sans ambiguïté (« attentat », « infarctus »…). Les blagues et les publications sur les jeux, films ou séries ne sont jamais masquées."),
+    LIGHT("Léger", "Mots sans ambiguïté et associations très proches (« retrouvé sans vie »). Les blagues ne sont jamais masquées."),
+    MODERATE("Modéré", "Ajoute les associations dans une même phrase. Les blagues et la fiction demandent beaucoup plus d'indices."),
+    NORMAL("Normal", "Bon équilibre entre protection et faux positifs."),
+    STRICT("Strict", "Masque aussi les contenus simplement évocateurs."),
 }
 
 enum class ThemeMode(val label: String) { SYSTEM("Automatique"), LIGHT("Clair"), DARK("Sombre") }

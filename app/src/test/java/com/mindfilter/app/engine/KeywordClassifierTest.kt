@@ -49,6 +49,26 @@ class KeywordClassifierTest {
     }
 
     @Test
+    fun humourEtJeuxVideoNeSontPasMasques() {
+        for (level in Sensitivity.entries.filter { it != Sensitivity.STRICT }) {
+            val c = all(level)
+            assertNull(level.name, c.classify("Cette légende m'a fait mort de rire 😂😂 · J'aime · Commenter"))
+            assertNull(level.name, c.classify("Le chat qui tombe du canapé 🤣 je suis mort"))
+            assertNull(level.name, c.classify("Assassin's Creed Shadows : le nouveau trailer est enfin disponible"))
+            assertNull(level.name, c.classify("Retrouvé ce matin mon vieux pull préféré ! Sinon, la série Mort sur le Nil est top"))
+        }
+    }
+
+    @Test
+    fun vraiesInformationsToujoursMasquees() {
+        for (level in Sensitivity.entries) {
+            val c = all(level)
+            assertNotNull(level.name, c.classify("Attentat déjoué à Lyon : deux suspects interpellés"))
+            assertNotNull(level.name, c.classify("Il meurt d'un infarctus à 45 ans"))
+        }
+    }
+
+    @Test
     fun filtrePersonnalise() {
         val f = CustomFilter(name = "Série", keywords = listOf("spoiler", "épisode final"), sensitivity = Sensitivity.NORMAL)
         val c = KeywordClassifier(emptyList(), listOf(f), Sensitivity.NORMAL)

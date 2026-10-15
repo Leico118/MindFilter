@@ -142,11 +142,11 @@ private fun FilterDialog(initial: CustomFilter?, onDismiss: () -> Unit, onSave: 
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text("Sensibilité", color = g.textSecondary, fontSize = 13.sp)
-                Segmented(Sensitivity.entries.toList(), sensitivity, { it.label }) { sensitivity = it }
+                Segmented(listOf(Sensitivity.LIGHT, Sensitivity.NORMAL, Sensitivity.STRICT), sensitivity, { it.label }) { sensitivity = it }
                 Text(
                     when (sensitivity) {
-                        Sensitivity.LIGHT -> "Masque si au moins deux mots-clés apparaissent."
-                        Sensitivity.NORMAL -> "Masque dès qu'un mot-clé apparaît."
+                        Sensitivity.VERY_LIGHT, Sensitivity.LIGHT -> "Masque si au moins deux mots-clés apparaissent."
+                        Sensitivity.MODERATE, Sensitivity.NORMAL -> "Masque dès qu'un mot-clé apparaît."
                         Sensitivity.STRICT -> "Masque dès qu'un mot-clé ou l'une de ses variantes apparaît."
                     },
                     color = g.textSecondary, fontSize = 13.sp,

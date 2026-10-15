@@ -96,11 +96,42 @@ private val PASSED_AWAY = listOf(
     "nous a quitté", "nous a quittée", "disparition", "rend l'âme", "a rendu l'âme",
 )
 
-/** Expressions retirées avant analyse (faux positifs courants). */
+/** Expressions retirées avant analyse (faux positifs courants : humour, expressions, titres). */
 val EXCLUSIONS = listOf(
-    "mort de rire", "morte de rire", "morts de rire", "crise de rire", "fou rire",
-    "mdr", "ptdr", "tuer le temps", "tue le temps", "drama queen", "guerre des étoiles",
-    "star wars", "cancer astro", "signe du cancer", "tue l'amour",
+    // Expressions familières
+    "mort de rire", "morte de rire", "morts de rire", "mortes de rire", "mourir de rire", "meurt de rire",
+    "crise de rire", "fou rire", "je suis mort", "je suis morte", "jsuis mort", "jsuis morte",
+    "j suis mort", "j suis morte", "chui mort", "chui morte", "chuis mort", "chuis morte",
+    "on est mort", "on est morts", "trop mort", "c est mort", "t es mort", "tu es mort",
+    "mort de honte", "morte de honte", "mort de fatigue", "morte de fatigue", "mort de faim",
+    "morte de faim", "mort d ennui", "morte d ennui", "tuer le temps", "tue le temps",
+    "tue l amour", "ca tue", "ca me tue", "tu me tues", "vous me tuez", "a tomber par terre",
+    "drama queen", "cancer astro", "signe du cancer", "natif du cancer", "natifs du cancer",
+    "bombe de bain", "bombe atomique de saveur", "c est une bombe", "canon a mort",
+    "attaque de panique de rire", "guerre des boutons", "guerre des etoiles",
+    // Jeux vidéo, films, séries
+    "assassin s creed", "assassins creed", "call of duty", "battlefield", "mortal kombat",
+    "dead by daylight", "the walking dead", "walking dead", "red dead redemption", "red dead",
+    "resident evil", "dying light", "death stranding", "gears of war", "god of war",
+    "world of warcraft", "warcraft", "warzone", "war thunder", "star wars", "squid game",
+    "game of thrones", "the last of us", "plague tale", "sniper elite", "hitman", "killer instinct",
+    "assassination classroom", "death note", "attack on titan", "l attaque des titans",
+    "dead island", "left 4 dead", "dead space", "evil dead", "deadpool",
+)
+
+/** Marques d'humour : le texte est probablement une blague. */
+val HUMOR_MARKERS = listOf(
+    "mdr", "mdrr", "mdrrr", "ptdr", "ptdrr", "lol", "xd", "haha*", "hihi*", "jpp", "jptdr",
+    "trop drole", "c est drole", "humour", "blague", "blagues", "sketch",
+)
+
+/** Marques de fiction / divertissement : jeu vidéo, film, série, livre… */
+val FICTION_MARKERS = listOf(
+    "jeu video", "jeux video", "jeux videos", "gameplay", "gamer*", "gaming", "ps5", "ps4",
+    "playstation", "xbox", "nintendo", "steam", "dlc", "trailer", "bande annonce", "teaser",
+    "film", "films", "serie tele", "serie tv", "nouvelle saison", "netflix", "disney",
+    "prime video", "cinema", "au cinema", "manga", "mangas", "roman", "bande dessinee",
+    "twitch", "streamer", "fortnite", "speedrun", "boss final", "personnage*",
 )
 
 // ---------------------------------------------------------------------------

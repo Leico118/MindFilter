@@ -141,13 +141,13 @@ fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, onSelect:
                     .clip(RoundedCornerShape(11.dp))
                     .background(bg)
                     .clickable { onSelect(opt) }
-                    .padding(vertical = 9.dp),
+                    .padding(vertical = 9.dp, horizontal = 2.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label(opt),
                     color = g.text,
-                    fontSize = 14.sp,
+                    fontSize = if (options.size > 3) 12.sp else 14.sp,
                     fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
