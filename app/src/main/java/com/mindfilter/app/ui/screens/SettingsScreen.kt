@@ -103,7 +103,7 @@ fun SettingsScreen(resumeTick: Int) {
                     Icons.Filled.Speed,
                     g.accent,
                     "Niveau de filtrage",
-                    "${RestrictionLevels.name(s.restrictionLevel)} · cran ${s.restrictionLevel}/10",
+                    "${RestrictionLevels.name(s.restrictionLevel)} · ${RestrictionLevels.display(s.restrictionLevel)}",
                 )
                 Spacer(Modifier.height(10.dp))
                 RestrictionGauge(s.restrictionLevel, { v -> AppSettings.update { it.copy(restrictionLevel = v) } })
@@ -197,7 +197,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.4 · jauge de filtrage et couleurs")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.5 · jauge de filtrage et couleurs")
             }
         }
     }

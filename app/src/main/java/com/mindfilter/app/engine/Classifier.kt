@@ -99,17 +99,16 @@ private data class Level(
     val fictionPenalty: Int,
 )
 
-/** Les 10 crans de la jauge « Niveau de filtrage » (1 = très léger, 10 = maximal). */
-private fun levelOf(n: Int): Level = when (n.coerceIn(1, 10)) {
+/** Les 9 crans de la jauge « Niveau de filtrage » (1 = très léger … 9 = très strict). */
+private fun levelOf(n: Int): Level = when (n.coerceIn(1, 9)) {
     1 -> Level(threshold = 4, combos = false, window = 0, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1)
     2 -> Level(threshold = 4, combos = true, window = 3, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1)
     3 -> Level(threshold = 4, combos = true, window = 6, minWeight = STRONG, humorPenalty = -1, fictionPenalty = 4)
     4 -> Level(threshold = 4, combos = true, window = 8, minWeight = 2, humorPenalty = 6, fictionPenalty = 4)
     5 -> Level(threshold = 4, combos = true, window = 10, minWeight = 2, humorPenalty = 4, fictionPenalty = 4)
     6 -> Level(threshold = 4, combos = true, window = 12, minWeight = 1, humorPenalty = 4, fictionPenalty = 2)
-    7 -> Level(threshold = 3, combos = true, window = 14, minWeight = 1, humorPenalty = 2, fictionPenalty = 2)
-    8 -> Level(threshold = 3, combos = true, window = 20, minWeight = 1, humorPenalty = 2, fictionPenalty = 2)
-    9 -> Level(threshold = 2, combos = true, window = 25, minWeight = 1, humorPenalty = 2, fictionPenalty = 0)
+    7 -> Level(threshold = 3, combos = true, window = 16, minWeight = 1, humorPenalty = 2, fictionPenalty = 2)
+    8 -> Level(threshold = 2, combos = true, window = 25, minWeight = 1, humorPenalty = 2, fictionPenalty = 0)
     else -> Level(threshold = 2, combos = true, window = 40, minWeight = 1, humorPenalty = 0, fictionPenalty = 0)
 }
 

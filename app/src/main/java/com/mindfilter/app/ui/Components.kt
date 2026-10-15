@@ -239,12 +239,12 @@ fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * Jauge « Niveau de filtrage » à 10 crans, façon réglage de luminosité :
+ * Jauge « Niveau de filtrage » à 9 crans (1 ; 1,5 ; 2 … 5), façon réglage de luminosité :
  * on fait glisser ou on touche la piste ; une petite vibration marque chaque cran.
- * Les crans 1, 3, 5, 7, 9 portent les numéros 1 à 5.
+ * Les numéros 1 à 5 sont affichés au-dessus des crans entiers.
  */
 @Composable
-fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 10) {
+fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 9) {
     val g = LocalGlass.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val currentLevel by androidx.compose.runtime.rememberUpdatedState(level)
@@ -271,10 +271,29 @@ fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 10) {
         }
 
         Column {
+            // Numéros 1 à 5 au-dessus des crans entiers (hauteur libre : jamais coupés)
+            Box(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
+                for (i in 0 until steps step 2) {
+                    val n = i / 2 + 1
+                    val reached = i + 1 <= level
+                    Text(
+                        "$n",
+                        modifier = Modifier
+                            .offset(x = inset + stepDp * i - 14.dp)
+                            .width(28.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        color = if (reached) g.text else g.textSecondary,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = if ((level + 1) / 2 == n) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(40.dp)
                     .pointerInput(stepDp) { detectTapGestures { select(it.x) } }
                     .pointerInput(stepDp) {
                         detectHorizontalDragGestures(
@@ -319,22 +338,6 @@ fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 10) {
                     drawCircle(Color.Black.copy(alpha = 0.12f), radius = 15.dp.toPx(), center = Offset(thumbX, cy + 1.5.dp.toPx()))
                     drawCircle(Color.White, radius = 14.dp.toPx(), center = Offset(thumbX, cy))
                     drawCircle(g.accent, radius = 6.dp.toPx(), center = Offset(thumbX, cy))
-                }
-            }
-            // Numéros 1 à 5 sous les crans impairs
-            Box(Modifier.fillMaxWidth().height(18.dp)) {
-                for (i in 0 until steps step 2) {
-                    val n = i / 2 + 1
-                    Text(
-                        "$n",
-                        modifier = Modifier
-                            .offset(x = inset + stepDp * i - 10.dp)
-                            .width(20.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = if (i + 1 <= level) g.text else g.textSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = if (i + 1 == level || i + 2 == level) FontWeight.Bold else FontWeight.Normal,
-                    )
                 }
             }
         }

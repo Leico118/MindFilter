@@ -10,7 +10,7 @@ import org.junit.Test
 
 class KeywordClassifierTest {
 
-    private fun all(level: Int = 7) =
+    private fun all(level: Int = 5) =
         KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), level)
 
     @Test
@@ -49,7 +49,7 @@ class KeywordClassifierTest {
 
     @Test
     fun humourEtJeuxVideoNeSontPasMasques() {
-        for (level in 1..8) {
+        for (level in 1..7) {
             val c = all(level)
             assertNull("cran $level", c.classify("Cette légende m'a fait mort de rire 😂😂 · J'aime · Commenter"))
             assertNull("cran $level", c.classify("Le chat qui tombe du canapé 🤣 je suis mort"))
@@ -60,7 +60,7 @@ class KeywordClassifierTest {
 
     @Test
     fun vraiesInformationsToujoursMasquees() {
-        for (level in 1..10) {
+        for (level in 1..9) {
             val c = all(level)
             assertNotNull("cran $level", c.classify("Attentat déjoué à Lyon : deux suspects interpellés"))
             assertNotNull("cran $level", c.classify("Il meurt d'un infarctus à 45 ans"))

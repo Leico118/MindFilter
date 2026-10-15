@@ -23,12 +23,13 @@ enum class Sensitivity(val label: String, val description: String) {
  */
 object RestrictionLevels {
     const val MIN = 1
-    const val MAX = 10
-    const val DEFAULT = 7
+    const val MAX = 9
+    const val DEFAULT = 5
 
+    /** Crans de la jauge : 1 ; 1,5 ; 2 ; … ; 5. */
     val names = listOf(
-        "Très léger", "Léger", "Léger +", "Modéré −", "Modéré",
-        "Modéré +", "Normal", "Renforcé", "Strict", "Maximal",
+        "Très léger", "Très léger +", "Léger", "Léger +", "Moyen",
+        "Moyen +", "Strict", "Strict +", "Très strict",
     )
     val descriptions = listOf(
         "Seulement les mots sans ambiguïté (« attentat », « infarctus »). Blagues, jeux, films et séries jamais masqués.",
@@ -36,23 +37,37 @@ object RestrictionLevels {
         "Associations très proches. Blagues jamais masquées, fiction rarement.",
         "Associations proches et mots moins explicites. Blagues et fiction demandent beaucoup d'indices.",
         "Associations dans une même phrase. Blagues et fiction demandent beaucoup d'indices.",
-        "Plus de mots pris en compte, phrase un peu plus longue.",
-        "Bon équilibre entre protection et faux positifs.",
-        "Plus large : associations plus éloignées, fiction moins épargnée.",
+        "Plus de mots pris en compte, phrases un peu plus longues.",
+        "Large : bon niveau de protection, quelques faux positifs possibles.",
         "Masque aussi les contenus simplement évocateurs.",
         "Le plus large possible : le moindre indice suffit, même dans une blague.",
     )
 
-    fun name(level: Int) = names[(level.coerceIn(MIN, MAX)) - 1]
-    fun description(level: Int) = descriptions[(level.coerceIn(MIN, MAX)) - 1]
+    fun name(level: Int) = names[level.coerceIn(MIN, MAX) - 1]
+    fun description(level: Int) = descriptions[level.coerceIn(MIN, MAX) - 1]
 
-    /** Correspondance avec l'ancien réglage à 5 niveaux. */
+    /** Valeur affichée sur la jauge : 1, 1,5, 2 … 5. */
+    fun display(level: Int): String {
+        val l = level.coerceIn(MIN, MAX)
+        val whole = (l + 1) / 2
+        return if (l % 2 == 1) "$whole" else "$whole,5"
+    }
+
+    /** Ancien réglage à 5 niveaux (v0.1.2). */
     fun fromSensitivity(s: Sensitivity): Int = when (s) {
         Sensitivity.VERY_LIGHT -> 1
         Sensitivity.LIGHT -> 3
         Sensitivity.MODERATE -> 5
         Sensitivity.NORMAL -> 7
-        Sensitivity.STRICT -> 9
+        Sensitivity.STRICT -> 8
+    }
+
+    /** Ancienne jauge à 10 crans (v0.1.4). */
+    fun fromTenSteps(old: Int): Int = when (old.coerceIn(1, 10)) {
+        8 -> 7
+        9 -> 8
+        10 -> 9
+        else -> old
     }
 }
 
@@ -150,8 +165,10 @@ object AppSettings {
             enabledThemes = prefs.getStringSet("themes", d.enabledThemes)?.toSet()
                 ?.filter { it in TaxonomyIndex.allThemeIds }?.toSet() ?: d.enabledThemes,
             monitoredPackages = prefs.getStringSet("packages", d.monitoredPackages)?.toSet() ?: d.monitoredPackages,
-            restrictionLevel = if (prefs.contains("restrictionLevel")) {
-                prefs.getInt("restrictionLevel", d.restrictionLevel).coerceIn(RestrictionLevels.MIN, RestrictionLevels.MAX)
+            restrictionLevel = if (prefs.contains("filterLevel")) {
+                prefs.getInt("filterLevel", d.restrictionLevel).coerceIn(RestrictionLevels.MIN, RestrictionLevels.MAX)
+            } else if (prefs.contains("restrictionLevel")) {
+                RestrictionLevels.fromTenSteps(prefs.getInt("restrictionLevel", 7))
             } else {
                 // Migration depuis l'ancien réglage à 5 niveaux.
                 prefs.getString("sensitivity", null)
@@ -175,7 +192,7 @@ object AppSettings {
             .putBoolean("protection", s.protectionEnabled)
             .putStringSet("themes", HashSet(s.enabledThemes))
             .putStringSet("packages", HashSet(s.monitoredPackages))
-            .putInt("restrictionLevel", s.restrictionLevel)
+            .putInt("filterLevel", s.restrictionLevel)
             .putString("accent", s.accent.name)
             .putString("themeMode", s.themeMode.name)
             .putString("maskStyle", s.maskStyle.name)
