@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.filled.Coronavirus
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.Public
@@ -209,6 +210,7 @@ fun categoryLook(id: String): CategoryLook = when (id) {
     "deces" -> CategoryLook(Icons.Filled.SentimentVeryDissatisfied, Color(0xFFAF52DE))
     "economie" -> CategoryLook(Icons.AutoMirrored.Filled.TrendingDown, Color(0xFFD4A017))
     "climat" -> CategoryLook(Icons.Filled.Public, Color(0xFF32ADE6))
+    "adulte" -> CategoryLook(Icons.Filled.Explicit, Color(0xFFFF2D55))
     else -> CategoryLook(Icons.Filled.Warning, Color(0xFFFF6B3D))
 }
 

@@ -18,7 +18,12 @@ package com.mindfilter.app.data
  */
 data class Rule(val weight: Int, val groups: List<List<String>>)
 
-data class Theme(val id: String, val name: String, val rules: List<Rule>)
+/**
+ * [ignoreContext] : le thème s'applique même si le texte ressemble à une blague ou parle
+ * de fiction (manga, film…). Utilisé pour les contenus pour adultes, où « manga » ou
+ * « anime » ne rendent pas le contenu anodin.
+ */
+data class Theme(val id: String, val name: String, val rules: List<Rule>, val ignoreContext: Boolean = false)
 
 data class SubCategory(val id: String, val name: String, val themes: List<Theme>)
 
@@ -149,6 +154,7 @@ val TAXONOMY: List<Category> = listOf(
     catEconomie(),
     catClimat(),
     catMenaces(),
+    catAdulte(),
 )
 
 private fun catSante(): Category =
@@ -760,4 +766,83 @@ object TaxonomyIndex {
         TAXONOMY.filter { it.defaultEnabled }.flatMap { it.allThemes }.map { it.id }.toSet()
 
     fun themeName(id: String): String = themesById[id]?.name ?: id
+}
+
+private fun catAdulte(): Category = Category(
+    "adulte", "Contenus pour adultes", "Pornographie, hentai, ecchi, yuri, yaoi…", false,
+    listOf(
+        sub(
+            "adulte.porno", "Pornographie",
+            t(
+                "adulte.porno.porno", "Pornographie",
+                s(
+                    "porno", "pornos", "pornographie", "pornographique*", "porn", "porno*", "pornhub", "xvideos", "xnxx",
+                    "youporn", "redtube", "xhamster", "brazzers", "film x", "films x", "video x", "videos x",
+                    "film porno", "acteur porno", "actrice porno", "x rated",
+                ),
+            ),
+            t(
+                "adulte.porno.createurs", "Contenus payants (OnlyFans, MYM…)",
+                s("onlyfans", "only fans", "fansly", "mym fans", "mym", "lien en bio 18", "contenu exclusif 18", "abonne toi pour plus"),
+                all(STRONG, listOf("onlyfans", "mym", "fansly"), listOf("lien", "bio", "abonne*", "exclusif*", "contenu*")),
+            ),
+            t(
+                "adulte.porno.sextape", "Sextapes et vidéos intimes",
+                s("sextape*", "sex tape*", "video intime", "videos intimes", "leak nude*", "nudes leak*", "fuite de nudes"),
+            ),
+        ),
+        sub(
+            "adulte.explicite", "Nudité et contenus sexuels",
+            t(
+                "adulte.explicite.nudite", "Nudité",
+                s("nudes", "nude", "nu integral", "entierement nue", "entierement nu", "seins nus", "topless", "naked"),
+                m("nue", "denudee", "denude"),
+            ),
+            t(
+                "adulte.explicite.sexe", "Contenus sexuels explicites",
+                s("nsfw", "scene de sexe", "sexe explicite", "contenu explicite", "contenu pour adultes", "interdit aux moins de 18 ans", "camgirl*", "webcam sexe", "strip tease", "striptease"),
+                m("sexy", "coquin*", "coquine*", "torride*"),
+            ),
+            t(
+                "adulte.explicite.erotisme", "Érotisme et lingerie",
+                s("erotique*", "erotisme", "lingerie sexy", "photo sexy", "photos sexy", "pose sexy", "boudoir"),
+                m("lingerie", "sensuel*", "sensuelle*", "deshabille*"),
+            ),
+        ),
+        sub(
+            "adulte.anime", "Animés et mangas pour adultes",
+            t(
+                "adulte.anime.hentai", "Hentai",
+                s("hentai", "nhentai", "hanime", "rule 34", "rule34", "r34", "doujin*", "ahegao", "futanari"),
+            ),
+            t(
+                "adulte.anime.ecchi", "Ecchi",
+                s("ecchi", "fanservice", "fan service", "oppai", "lewd", "lewds", "waifu nsfw"),
+            ),
+            t(
+                "adulte.anime.yuri", "Yuri",
+                s("yuri manga", "yuri anime", "manga yuri", "anime yuri", "shoujo ai", "shojo ai", "girls love", "girl s love"),
+                all(STRONG, listOf("yuri"), listOf("manga*", "anime", "animes", "webtoon*", "doujin*", "ship*", "couple", "fanart*", "nsfw", "lesbien*")),
+            ),
+            t(
+                "adulte.anime.yaoi", "Yaoi",
+                s("yaoi", "shonen ai", "shounen ai", "boys love", "boy s love", "manga bl", "bl manga", "webtoon bl"),
+                all(STRONG, listOf("bl"), listOf("manga*", "anime", "animes", "webtoon*", "drama", "ship*")),
+            ),
+        ),
+        sub(
+            "adulte.sexualite", "Sexualité et rencontres",
+            t(
+                "adulte.sexualite.rencontres", "Rencontres pour adultes",
+                s("plan cul", "plans cul", "sexfriend*", "sex friend*", "rencontre coquine", "rencontres coquines", "rencontres adultes", "rencontre adulte", "escort*", "libertin*", "echangisme", "echangiste*"),
+            ),
+            t(
+                "adulte.sexualite.sextoys", "Sextoys et accessoires",
+                s("sextoy*", "sex toy*", "vibromasseur*", "godemiche*", "plug anal", "lovehoney"),
+            ),
+        ),
+    ),
+).let { c ->
+    // Les contenus pour adultes restent masqués même dans un contexte « manga » ou humoristique.
+    c.copy(subCategories = c.subCategories.map { sc -> sc.copy(themes = sc.themes.map { it.copy(ignoreContext = true) }) })
 }

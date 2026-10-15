@@ -77,6 +77,8 @@ private class CompiledTheme(
     val id: String,
     val label: String,
     val rules: List<CompiledRule>,
+    /** Ignore le contexte humour / fiction (contenus pour adultes). */
+    val ignoreContext: Boolean = false,
     /** Seuil propre (filtres personnalisés) ; null = seuil du niveau de sensibilité. */
     val fixedThreshold: Int? = null,
 )
@@ -145,7 +147,7 @@ class KeywordClassifier(
                 val groups = r.groups.map { g -> g.mapNotNull { alt(it) } }
                 if (groups.isEmpty() || groups.any { it.isEmpty() }) null else CompiledRule(r.weight, groups)
             }
-            if (rules.isNotEmpty()) list.add(CompiledTheme(t.id, t.name, rules))
+            if (rules.isNotEmpty()) list.add(CompiledTheme(t.id, t.name, rules, ignoreContext = t.ignoreContext))
         }
         for (f in customFilters) {
             if (!f.enabled) continue
@@ -189,12 +191,15 @@ class KeywordClassifier(
         // Contexte : humour (émojis rieurs, mdr…) ou fiction (jeu vidéo, film, série…).
         val humor = LAUGH_EMOJI.containsMatchIn(raw) || humorWords.any { it.containsMatchIn(norm) }
         val fiction = fictionWords.any { it.containsMatchIn(norm) }
+        // blocked = aux niveaux bas, ce contexte empêche tout masquage (sauf filtres
+        // personnels et thèmes qui ignorent le contexte, comme les contenus pour adultes).
         var penalty = 0
+        var blocked = false
         if (humor) {
-            if (level.humorPenalty < 0) return customOnly(norm) else penalty += level.humorPenalty
+            if (level.humorPenalty < 0) blocked = true else penalty += level.humorPenalty
         }
         if (fiction) {
-            if (level.fictionPenalty < 0) return customOnly(norm) else penalty += level.fictionPenalty
+            if (level.fictionPenalty < 0) blocked = true else penalty += level.fictionPenalty
         }
 
         // Index « position du caractère → numéro du mot » pour mesurer les distances.
@@ -223,27 +228,18 @@ class KeywordClassifier(
 
         var best: MatchResult? = null
         for (t in compiled) {
+            val custom = t.fixedThreshold != null
+            if (blocked && !custom && !t.ignoreContext) continue
             var score = 0
             for (rule in t.rules) {
                 if (matches(rule, ::positions)) score += rule.weight
             }
-            val threshold = (t.fixedThreshold ?: level.threshold) + if (t.fixedThreshold == null) penalty else 0
+            val threshold = (t.fixedThreshold ?: level.threshold) + if (custom || t.ignoreContext) 0 else penalty
             if (score >= threshold && (best == null || score > best.score)) {
                 best = MatchResult(t.id, t.label, score)
             }
         }
         return best
-    }
-
-    /** En contexte humoristique / fictif aux niveaux bas, seuls les filtres personnels s'appliquent. */
-    private fun customOnly(norm: String): MatchResult? {
-        val customs = compiled.filter { it.fixedThreshold != null }
-        if (customs.isEmpty()) return null
-        for (t in customs) {
-            val score = t.rules.sumOf { r -> if (r.groups.all { g -> g.any { it.regex.containsMatchIn(norm) } }) r.weight else 0 }
-            if (score >= (t.fixedThreshold ?: 2)) return MatchResult(t.id, t.label, score)
-        }
-        return null
     }
 
     /**
