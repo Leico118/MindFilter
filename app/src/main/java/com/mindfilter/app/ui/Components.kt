@@ -123,7 +123,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 fun ScreenTitle(title: String, subtitle: String? = null) {
     val g = LocalGlass.current
     Column(Modifier.padding(start = 6.dp, top = 8.dp, bottom = 6.dp)) {
-        Text(title, color = g.text, fontSize = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+        Text(title, color = g.text, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
         if (subtitle != null) {
             Text(subtitle, color = g.textSecondary, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp))
         }
@@ -191,10 +191,18 @@ fun PillButton(text: String, modifier: Modifier = Modifier, filled: Boolean = tr
             .clip(RoundedCornerShape(50))
             .background(if (filled) g.accent else g.chip)
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (filled) g.onAccent else g.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text,
+            color = if (filled) g.onAccent else g.accent,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
     }
 }
 

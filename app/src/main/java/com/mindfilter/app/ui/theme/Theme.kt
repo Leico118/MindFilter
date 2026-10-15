@@ -9,6 +9,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import com.mindfilter.app.data.AccentColor
 import com.mindfilter.app.data.ThemeMode
 
@@ -112,7 +115,27 @@ fun MindFilterTheme(mode: ThemeMode, accentColor: AccentColor = AccentColor.BLUE
             onBackground = glass.text,
         )
     }
-    CompositionLocalProvider(LocalGlass provides glass) {
+    CompositionLocalProvider(
+        LocalGlass provides glass,
+        LocalDensity provides adaptiveDensity(),
+    ) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
+}
+
+/**
+ * Adapte toute l'interface à l'écran du téléphone :
+ *  - sur un écran plus étroit que la référence (≈ 400 dp, ex. ROG Phone), tout est
+ *    réduit proportionnellement (textes, bulles, cartes, marges) jusqu'à −22 % ;
+ *  - la taille de police système est respectée, mais plafonnée pour qu'un réglage
+ *    « très grande police » ne fasse pas exploser la mise en page.
+ * Sur un grand écran rien n'est agrandi : l'apparence actuelle reste le maximum.
+ */
+@Composable
+private fun adaptiveDensity(): Density {
+    val base = LocalDensity.current
+    val widthDp = LocalConfiguration.current.screenWidthDp.takeIf { it > 0 } ?: 400
+    val factor = (widthDp / 400f).coerceIn(0.78f, 1f)
+    val font = base.fontScale.coerceAtMost(1.10f)
+    return Density(density = base.density * factor, fontScale = font)
 }
