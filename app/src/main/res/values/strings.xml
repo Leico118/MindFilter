@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MindFilter</string>
+    <string name="accessibility_label">MindFilter – masquage des contenus</string>
+    <string name="accessibility_description">MindFilter lit le texte affiché dans les applications que vous avez choisies (Facebook, Instagram, Chrome…) pour masquer les publications liées aux sujets que vous souhaitez éviter. Toute l\'analyse se fait sur le téléphone : aucun texte n\'est enregistré ni envoyé sur Internet. Les champs de saisie et les mots de passe sont ignorés.</string>
+</resources>

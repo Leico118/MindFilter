@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône : une plaque de verre arrondie avec un œil barré. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M34,30h40a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-40a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,54c4.5,-7 10.5,-10.5 18,-10.5s13.5,3.5 18,10.5c-4.5,7 -10.5,10.5 -18,10.5s-13.5,-3.5 -18,-10.5z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,54m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M39,39L69,69" />
+</vector>
