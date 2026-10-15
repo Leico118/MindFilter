@@ -17,6 +17,59 @@ enum class Sensitivity(val label: String, val description: String) {
     STRICT("Strict", "Masque aussi les contenus simplement évocateurs."),
 }
 
+/**
+ * Niveau de filtrage global, de 1 (très léger) à 10 (maximal), réglé par la jauge.
+ * Les filtres personnalisés gardent leur propre [Sensitivity].
+ */
+object RestrictionLevels {
+    const val MIN = 1
+    const val MAX = 10
+    const val DEFAULT = 7
+
+    val names = listOf(
+        "Très léger", "Léger", "Léger +", "Modéré −", "Modéré",
+        "Modéré +", "Normal", "Renforcé", "Strict", "Maximal",
+    )
+    val descriptions = listOf(
+        "Seulement les mots sans ambiguïté (« attentat », « infarctus »). Blagues, jeux, films et séries jamais masqués.",
+        "Mots sans ambiguïté et associations collées (« retrouvé sans vie »). Blagues et fiction jamais masquées.",
+        "Associations très proches. Blagues jamais masquées, fiction rarement.",
+        "Associations proches et mots moins explicites. Blagues et fiction demandent beaucoup d'indices.",
+        "Associations dans une même phrase. Blagues et fiction demandent beaucoup d'indices.",
+        "Plus de mots pris en compte, phrase un peu plus longue.",
+        "Bon équilibre entre protection et faux positifs.",
+        "Plus large : associations plus éloignées, fiction moins épargnée.",
+        "Masque aussi les contenus simplement évocateurs.",
+        "Le plus large possible : le moindre indice suffit, même dans une blague.",
+    )
+
+    fun name(level: Int) = names[(level.coerceIn(MIN, MAX)) - 1]
+    fun description(level: Int) = descriptions[(level.coerceIn(MIN, MAX)) - 1]
+
+    /** Correspondance avec l'ancien réglage à 5 niveaux. */
+    fun fromSensitivity(s: Sensitivity): Int = when (s) {
+        Sensitivity.VERY_LIGHT -> 1
+        Sensitivity.LIGHT -> 3
+        Sensitivity.MODERATE -> 5
+        Sensitivity.NORMAL -> 7
+        Sensitivity.STRICT -> 9
+    }
+}
+
+/** Couleur d'accent de l'interface (version claire et sombre, couleur du texte posé dessus). */
+enum class AccentColor(val label: String, val light: Long, val dark: Long, val onLight: Long, val onDark: Long) {
+    BLUE("Bleu", 0xFF0A84FF, 0xFF3B9BFF, 0xFFFFFFFF, 0xFFFFFFFF),
+    TEAL("Turquoise", 0xFF0097A7, 0xFF40C8E0, 0xFFFFFFFF, 0xFF00252B),
+    GREEN("Vert", 0xFF2E9E4F, 0xFF32D74B, 0xFFFFFFFF, 0xFF002B0A),
+    YELLOW("Jaune", 0xFFC79A00, 0xFFFFD60A, 0xFFFFFFFF, 0xFF2B2300),
+    ORANGE("Orange", 0xFFF57C00, 0xFFFF9F0A, 0xFFFFFFFF, 0xFF2B1600),
+    RED("Rouge", 0xFFE5342B, 0xFFFF6961, 0xFFFFFFFF, 0xFFFFFFFF),
+    PINK("Rose", 0xFFE6337A, 0xFFFF6FA3, 0xFFFFFFFF, 0xFFFFFFFF),
+    PURPLE("Violet", 0xFF9B45D6, 0xFFBF5AF2, 0xFFFFFFFF, 0xFFFFFFFF),
+    INDIGO("Indigo", 0xFF5856D6, 0xFF7D7AFF, 0xFFFFFFFF, 0xFFFFFFFF),
+    GRAPHITE("Noir", 0xFF1C1C1E, 0xFFE5E5EA, 0xFFFFFFFF, 0xFF111113),
+}
+
 enum class ThemeMode(val label: String) { SYSTEM("Automatique"), LIGHT("Clair"), DARK("Sombre") }
 
 enum class MaskStyle(val label: String) { AUTO("Automatique"), LIGHT("Clair"), DARK("Sombre") }
@@ -44,7 +97,8 @@ data class SettingsState(
     val protectionEnabled: Boolean = true,
     val enabledThemes: Set<String> = TaxonomyIndex.defaultEnabledThemeIds,
     val monitoredPackages: Set<String> = DEFAULT_MONITORED,
-    val sensitivity: Sensitivity = Sensitivity.NORMAL,
+    val restrictionLevel: Int = RestrictionLevels.DEFAULT,
+    val accent: AccentColor = AccentColor.BLUE,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val maskStyle: MaskStyle = MaskStyle.AUTO,
     val touchMode: TouchMode = TouchMode.PROTECT,
@@ -96,7 +150,15 @@ object AppSettings {
             enabledThemes = prefs.getStringSet("themes", d.enabledThemes)?.toSet()
                 ?.filter { it in TaxonomyIndex.allThemeIds }?.toSet() ?: d.enabledThemes,
             monitoredPackages = prefs.getStringSet("packages", d.monitoredPackages)?.toSet() ?: d.monitoredPackages,
-            sensitivity = enumOr(prefs.getString("sensitivity", null), d.sensitivity),
+            restrictionLevel = if (prefs.contains("restrictionLevel")) {
+                prefs.getInt("restrictionLevel", d.restrictionLevel).coerceIn(RestrictionLevels.MIN, RestrictionLevels.MAX)
+            } else {
+                // Migration depuis l'ancien réglage à 5 niveaux.
+                prefs.getString("sensitivity", null)
+                    ?.let { n -> Sensitivity.entries.firstOrNull { it.name == n } }
+                    ?.let { RestrictionLevels.fromSensitivity(it) } ?: d.restrictionLevel
+            },
+            accent = enumOr(prefs.getString("accent", null), d.accent),
             themeMode = enumOr(prefs.getString("themeMode", null), d.themeMode),
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
@@ -113,7 +175,8 @@ object AppSettings {
             .putBoolean("protection", s.protectionEnabled)
             .putStringSet("themes", HashSet(s.enabledThemes))
             .putStringSet("packages", HashSet(s.monitoredPackages))
-            .putString("sensitivity", s.sensitivity.name)
+            .putInt("restrictionLevel", s.restrictionLevel)
+            .putString("accent", s.accent.name)
             .putString("themeMode", s.themeMode.name)
             .putString("maskStyle", s.maskStyle.name)
             .putString("touchMode", s.touchMode.name)

@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -181,7 +186,7 @@ fun PillButton(text: String, modifier: Modifier = Modifier, filled: Boolean = tr
             .padding(horizontal = 18.dp, vertical = 11.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (filled) Color.White else g.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = if (filled) g.onAccent else g.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -229,6 +234,146 @@ fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier) {
             Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("Masqué", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+/**
+ * Jauge « Niveau de filtrage » à 10 crans, façon réglage de luminosité :
+ * on fait glisser ou on touche la piste ; une petite vibration marque chaque cran.
+ * Les crans 1, 3, 5, 7, 9 portent les numéros 1 à 5.
+ */
+@Composable
+fun RestrictionGauge(level: Int, onChange: (Int) -> Unit, steps: Int = 10) {
+    val g = LocalGlass.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val currentLevel by androidx.compose.runtime.rememberUpdatedState(level)
+    val currentOnChange by androidx.compose.runtime.rememberUpdatedState(onChange)
+
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val inset = 16.dp
+        val widthDp = maxWidth
+        val stepDp = (widthDp - inset * 2) / (steps - 1)
+        val density = androidx.compose.ui.platform.LocalDensity.current
+
+        fun levelAt(xPx: Float): Int {
+            val insetPx = with(density) { inset.toPx() }
+            val stepPx = with(density) { stepDp.toPx() }
+            val idx = kotlin.math.round((xPx - insetPx) / stepPx).toInt().coerceIn(0, steps - 1)
+            return idx + 1
+        }
+        fun select(xPx: Float) {
+            val l = levelAt(xPx)
+            if (l != currentLevel) {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                currentOnChange(l)
+            }
+        }
+
+        Column {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .pointerInput(stepDp) { detectTapGestures { select(it.x) } }
+                    .pointerInput(stepDp) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { select(it.x) },
+                            onHorizontalDrag = { change, _ -> select(change.position.x) },
+                        )
+                    },
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val insetPx = inset.toPx()
+                    val stepPx = stepDp.toPx()
+                    val cy = size.height / 2f
+                    val trackH = 6.dp.toPx()
+                    val thumbX = insetPx + (level - 1) * stepPx
+                    // Piste vide
+                    drawRoundRect(
+                        color = g.chip,
+                        topLeft = Offset(insetPx, cy - trackH / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - insetPx * 2, trackH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
+                    )
+                    // Partie remplie, dégradé de la couleur d'accent
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            listOf(g.accent.copy(alpha = 0.45f), g.accent),
+                            startX = insetPx,
+                            endX = thumbX.coerceAtLeast(insetPx + 1f),
+                        ),
+                        topLeft = Offset(insetPx, cy - trackH / 2),
+                        size = androidx.compose.ui.geometry.Size((thumbX - insetPx).coerceAtLeast(trackH), trackH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2),
+                    )
+                    // Crans
+                    for (i in 0 until steps) {
+                        val x = insetPx + i * stepPx
+                        val numbered = i % 2 == 0
+                        val r = if (numbered) 3.5.dp.toPx() else 2.dp.toPx()
+                        val c = if (i + 1 <= level) Color.White.copy(alpha = 0.9f) else g.textSecondary.copy(alpha = 0.6f)
+                        drawCircle(c, radius = r, center = Offset(x, cy))
+                    }
+                    // Curseur
+                    drawCircle(Color.Black.copy(alpha = 0.12f), radius = 15.dp.toPx(), center = Offset(thumbX, cy + 1.5.dp.toPx()))
+                    drawCircle(Color.White, radius = 14.dp.toPx(), center = Offset(thumbX, cy))
+                    drawCircle(g.accent, radius = 6.dp.toPx(), center = Offset(thumbX, cy))
+                }
+            }
+            // Numéros 1 à 5 sous les crans impairs
+            Box(Modifier.fillMaxWidth().height(18.dp)) {
+                for (i in 0 until steps step 2) {
+                    val n = i / 2 + 1
+                    Text(
+                        "$n",
+                        modifier = Modifier
+                            .offset(x = inset + stepDp * i - 10.dp)
+                            .width(20.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        color = if (i + 1 <= level) g.text else g.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = if (i + 1 == level || i + 2 == level) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Pastilles de couleur pour choisir la teinte de l'application. */
+@Composable
+fun AccentPicker(selected: com.mindfilter.app.data.AccentColor, onSelect: (com.mindfilter.app.data.AccentColor) -> Unit) {
+    val g = LocalGlass.current
+    val all = com.mindfilter.app.data.AccentColor.entries
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        all.chunked(5).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                row.forEach { a ->
+                    val c = Color(if (g.dark) a.dark else a.light)
+                    val isSel = a == selected
+                    Box(
+                        Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, if (isSel) c else Color.Transparent, CircleShape)
+                            .padding(5.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .clickable { onSelect(a) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isSel) {
+                            Icon(
+                                androidx.compose.material.icons.Icons.Filled.Check,
+                                contentDescription = a.label,
+                                tint = Color(if (g.dark) a.onDark else a.onLight),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

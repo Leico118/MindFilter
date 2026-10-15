@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by AppSettings.state.collectAsStateWithLifecycle()
             val tick by resumeTick.collectAsStateWithLifecycle()
-            MindFilterTheme(settings.themeMode) {
+            MindFilterTheme(settings.themeMode, settings.accent) {
                 GlassBackground {
                     MindFilterRoot(tick)
                 }

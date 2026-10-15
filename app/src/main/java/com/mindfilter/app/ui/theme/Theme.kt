@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.mindfilter.app.data.AccentColor
 import com.mindfilter.app.data.ThemeMode
 
 /** Palette « verre liquide » : surfaces translucides, accent bleu iOS. */
@@ -24,6 +25,7 @@ data class GlassColors(
     val text: Color,
     val textSecondary: Color,
     val accent: Color,
+    val onAccent: Color = Color.White,
     val positive: Color,
     val warning: Color,
     val danger: Color,
@@ -71,17 +73,25 @@ private val DarkGlass = GlassColors(
 val LocalGlass = staticCompositionLocalOf { LightGlass }
 
 @Composable
-fun MindFilterTheme(mode: ThemeMode, content: @Composable () -> Unit) {
+fun MindFilterTheme(mode: ThemeMode, accentColor: AccentColor = AccentColor.BLUE, content: @Composable () -> Unit) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val glass = if (dark) DarkGlass else LightGlass
+    // Même rendu « verre » partout ; seule la teinte d'accent (et les halos du fond) change.
+    val accent = Color(if (dark) accentColor.dark else accentColor.light)
+    val base = if (dark) DarkGlass else LightGlass
+    val glass = base.copy(
+        accent = accent,
+        onAccent = Color(if (dark) accentColor.onDark else accentColor.onLight),
+        blobA = accent.copy(alpha = if (dark) 0.25f else 0.33f),
+        blobB = accent.copy(alpha = if (dark) 0.14f else 0.20f),
+    )
     val scheme = if (dark) {
         darkColorScheme(
             primary = glass.accent,
-            onPrimary = Color.White,
+            onPrimary = glass.onAccent,
             background = glass.bgTop,
             surface = Color(0xFF1C1C22),
             onSurface = glass.text,
@@ -90,7 +100,7 @@ fun MindFilterTheme(mode: ThemeMode, content: @Composable () -> Unit) {
     } else {
         lightColorScheme(
             primary = glass.accent,
-            onPrimary = Color.White,
+            onPrimary = glass.onAccent,
             background = glass.bgTop,
             surface = Color(0xFFFFFFFF),
             onSurface = glass.text,

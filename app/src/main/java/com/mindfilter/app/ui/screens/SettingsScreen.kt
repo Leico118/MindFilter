@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -37,7 +38,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mindfilter.app.data.AppSettings
 import com.mindfilter.app.data.MaskStyle
-import com.mindfilter.app.data.Sensitivity
+import com.mindfilter.app.data.RestrictionLevels
+import com.mindfilter.app.ui.AccentPicker
+import com.mindfilter.app.ui.RestrictionGauge
 import com.mindfilter.app.data.ServiceStatus
 import com.mindfilter.app.data.ThemeMode
 import com.mindfilter.app.data.TouchMode
@@ -96,11 +99,20 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Speed, g.warning, "Niveau de sensibilité")
-                Spacer(Modifier.height(12.dp))
-                Segmented(Sensitivity.entries.toList(), s.sensitivity, { it.label }) { v -> AppSettings.update { it.copy(sensitivity = v) } }
+                Header(
+                    Icons.Filled.Speed,
+                    g.accent,
+                    "Niveau de filtrage",
+                    "${RestrictionLevels.name(s.restrictionLevel)} · cran ${s.restrictionLevel}/10",
+                )
+                Spacer(Modifier.height(10.dp))
+                RestrictionGauge(s.restrictionLevel, { v -> AppSettings.update { it.copy(restrictionLevel = v) } })
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Plus souple", color = g.textSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("Plus strict", color = g.textSecondary, fontSize = 12.sp)
+                }
                 Spacer(Modifier.height(8.dp))
-                Text(s.sensitivity.description, color = g.textSecondary, fontSize = 13.sp)
+                Text(RestrictionLevels.description(s.restrictionLevel), color = g.textSecondary, fontSize = 13.sp)
             }
         }
 
@@ -109,6 +121,14 @@ fun SettingsScreen(resumeTick: Int) {
                 Header(Icons.Filled.Palette, Color(0xFFAF52DE), "Mode clair et sombre", "Apparence de MindFilter")
                 Spacer(Modifier.height(12.dp))
                 Segmented(ThemeMode.entries.toList(), s.themeMode, { it.label }) { v -> AppSettings.update { it.copy(themeMode = v) } }
+            }
+        }
+
+        item {
+            GlassCard {
+                Header(Icons.Filled.ColorLens, g.accent, "Couleur de l'application", s.accent.label)
+                Spacer(Modifier.height(14.dp))
+                AccentPicker(s.accent) { a -> AppSettings.update { it.copy(accent = a) } }
             }
         }
 
@@ -177,7 +197,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.3 · clavier corrigé, vérification des publications")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.4 · jauge de filtrage et couleurs")
             }
         }
     }

@@ -7,7 +7,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.onFocusChanged
 import com.mindfilter.app.data.CustomFilter
-import com.mindfilter.app.data.Sensitivity
+import com.mindfilter.app.data.RestrictionLevels
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
@@ -239,14 +239,14 @@ private fun EngineTester() {
     val scope = rememberCoroutineScope()
 
     val enabledThemes = remember(s.enabledThemes) { s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] } }
-    val classifier = remember(s.enabledThemes, s.customFilters, s.sensitivity) {
-        KeywordClassifier(enabledThemes, s.customFilters, s.sensitivity)
+    val classifier = remember(s.enabledThemes, s.customFilters, s.restrictionLevel) {
+        KeywordClassifier(enabledThemes, s.customFilters, s.restrictionLevel)
     }
-    val allThemesSameLevel = remember(s.sensitivity) {
-        KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), s.sensitivity)
+    val allThemesSameLevel = remember(s.restrictionLevel) {
+        KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), s.restrictionLevel)
     }
     val enabledStrict = remember(s.enabledThemes) {
-        KeywordClassifier(enabledThemes, emptyList(), Sensitivity.STRICT)
+        KeywordClassifier(enabledThemes, emptyList(), RestrictionLevels.MAX - 1)
     }
 
     val trimmed = text.trim()
@@ -261,8 +261,8 @@ private fun EngineTester() {
                 val strict = enabledStrict.classify(trimmed)
                 when {
                     other != null -> "Ce texte parle de « ${other.label} », mais ce thème n'est pas coché dans Catégories."
-                    strict != null && s.sensitivity != Sensitivity.STRICT ->
-                        "Proche de « ${strict.label} », mais pas assez net pour le niveau « ${s.sensitivity.label} ». Il serait masqué en niveau plus élevé."
+                    strict != null && s.restrictionLevel < RestrictionLevels.MAX - 1 ->
+                        "Proche de « ${strict.label} », mais pas assez net pour votre niveau de filtrage (${RestrictionLevels.name(s.restrictionLevel)}). Il serait masqué avec un niveau plus élevé."
                     else -> "Aucun de vos thèmes ne correspond à ce texte."
                 }
             }

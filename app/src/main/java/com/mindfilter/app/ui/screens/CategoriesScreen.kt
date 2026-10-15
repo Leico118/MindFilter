@@ -63,7 +63,7 @@ fun toggleGroup(themes: List<Theme>, state: ToggleableState) {
 
 @Composable
 private fun checkboxColors() = LocalGlass.current.let { g ->
-    CheckboxDefaults.colors(checkedColor = g.accent, uncheckedColor = g.textSecondary, checkmarkColor = androidx.compose.ui.graphics.Color.White)
+    CheckboxDefaults.colors(checkedColor = g.accent, uncheckedColor = g.textSecondary, checkmarkColor = g.onAccent)
 }
 
 @Composable
