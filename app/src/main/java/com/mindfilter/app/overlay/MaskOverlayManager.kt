@@ -16,7 +16,7 @@ import com.mindfilter.app.service.MaskTarget
  */
 class MaskOverlayManager(
     private val context: Context,
-    private val onDrag: (List<TouchPoint>) -> Unit,
+    private val relay: DragRelay,
 ) {
     private class Entry(val view: MaskView, val params: WindowManager.LayoutParams, val rect: Rect)
 
@@ -81,7 +81,7 @@ class MaskOverlayManager(
     }
 
     private fun add(t: MaskTarget): Boolean {
-        val view = MaskView(context, dark, onDrag)
+        val view = MaskView(context, dark, relay)
         val p = WindowManager.LayoutParams(
             t.rect.width(),
             t.rect.height(),

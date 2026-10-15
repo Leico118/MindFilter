@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import java.util.concurrent.atomic.AtomicInteger
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import com.mindfilter.app.data.AppSettings
@@ -19,6 +20,7 @@ import com.mindfilter.app.data.TaxonomyIndex
 import com.mindfilter.app.data.TouchMode
 import com.mindfilter.app.engine.KeywordClassifier
 import com.mindfilter.app.overlay.MaskOverlayManager
+import com.mindfilter.app.overlay.DragRelay
 import com.mindfilter.app.overlay.TouchPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +57,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         AppSettings.init(this)
         worker = HandlerThread("mindfilter-scan").also { it.start() }
         workerHandler = Handler(worker.looper)
-        overlay = MaskOverlayManager(this) { pts -> replayDrag(pts) }
+        overlay = MaskOverlayManager(this, dragRelay)
 
         // Après un redémarrage du téléphone, Android relance automatiquement ce service.
         // Si l'« activation automatique » est désactivée, la protection reste en pause.
@@ -107,16 +109,20 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                if (overlay.count > 0 &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
-                ) {
-                    // Suivi immédiat du défilement, la position exacte est recalculée juste après.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    // Suivi immédiat du défilement. Le décalage est aussi cumulé pour corriger
+                    // les analyses faites pendant le mouvement (sinon les masques « reculent »).
                     val dy = event.scrollDeltaY
                     val dx = event.scrollDeltaX
-                    if (dy != -1 && dy != 0 && kotlin.math.abs(dy) < 4000) overlay.offsetAll(0, -dy)
-                    else if (dx != -1 && dx != 0 && kotlin.math.abs(dx) < 4000) overlay.offsetAll(-dx, 0)
+                    if (dy != -1 && dy != 0 && kotlin.math.abs(dy) < 4000) {
+                        scrollAccumY.addAndGet(dy)
+                        if (overlay.count > 0) overlay.offsetAll(0, -dy)
+                    } else if (dx != -1 && dx != 0 && kotlin.math.abs(dx) < 4000) {
+                        scrollAccumX.addAndGet(dx)
+                        if (overlay.count > 0) overlay.offsetAll(-dx, 0)
+                    }
                 }
-                requestScan(50)
+                requestScan(60)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> requestScan(30)
             else -> requestScan(110)
@@ -154,6 +160,9 @@ class MindFilterAccessibilityService : AccessibilityService() {
             clearMasks()
             return
         }
+        // Position du défilement au moment où l'écran est lu.
+        val snapY = scrollAccumY.get()
+        val snapX = scrollAccumX.get()
         val screen = Rect()
         root.getBoundsInScreen(screen)
         if (screen.isEmpty) {
@@ -183,7 +192,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
             if (!settings.protectionEnabled) {
                 overlay.clear()
             } else if (!replayingGesture) {
-                val created = overlay.render(targets, dark, touchable)
+                // Si la page a encore défilé pendant l'analyse, on décale d'autant les
+                // nouvelles positions : les masques restent collés aux publications.
+                val lateY = scrollAccumY.get() - snapY
+                val lateX = scrollAccumX.get() - snapX
+                val placed = if (lateX == 0 && lateY == 0) targets else targets.map { t ->
+                    t.copy(rect = Rect(t.rect).apply { offset(-lateX, -lateY) })
+                }
+                val created = overlay.render(placed, dark, touchable)
                 if (created > 0) ServiceStatus.maskedThisSession.value += created
                 if (overlay.count > 0) startExitWatch()
             }
@@ -251,52 +267,129 @@ class MindFilterAccessibilityService : AccessibilityService() {
         }
     }
 
-    /**
-     * Rejoue sur l'application un glissement effectué sur un masque : les masques
-     * deviennent transparents aux gestes le temps du geste, puis sont rétablis.
-     * Un simple appui n'est jamais transmis.
-     */
-    private fun replayDrag(points: List<TouchPoint>) {
-        if (points.size < 2 || replayingGesture) return
+    // ------------------------------------------------------------------------------
+    // Relais du défilement en direct (mode « Protégé »)
+    // ------------------------------------------------------------------------------
+    //
+    // Un appui sur un masque est absorbé (la publication ne peut pas s'ouvrir). Dès que
+    // le doigt GLISSE, les masques deviennent transparents aux gestes et le mouvement est
+    // retransmis à l'application par petits morceaux successifs (« gestes continus »
+    // d'Android), au fil du mouvement : la page défile sous le doigt, presque sans délai.
+
+    private val scrollAccumY = AtomicInteger(0)
+    private val scrollAccumX = AtomicInteger(0)
+
+    private val dragRelay = object : DragRelay {
+        override fun onDragStart(first: TouchPoint) = streamStart(first)
+        override fun onDragMove(p: TouchPoint) = streamMove(p)
+        override fun onDragEnd(last: TouchPoint) = streamEnd(last)
+    }
+
+    private var streamActive = false
+    private var streamInFlight = false
+    private var streamEnding = false
+    private var streamFinishing = false
+    private var streamLast: TouchPoint? = null
+    private var streamStroke: GestureDescription.StrokeDescription? = null
+    private val streamPending = ArrayList<TouchPoint>()
+
+    private fun streamStart(first: TouchPoint) {
+        if (streamActive) return
+        streamActive = true
+        streamEnding = false
+        streamFinishing = false
+        streamInFlight = false
+        streamStroke = null
+        streamLast = first
+        streamPending.clear()
+        replayingGesture = true
+        overlay.setTouchable(false)
+        // Laisse au système le temps d'appliquer la transparence des masques.
+        main.postDelayed({ pumpStream() }, 16)
+    }
+
+    private fun streamMove(p: TouchPoint) {
+        if (!streamActive) return
+        streamPending.add(p)
+        if (!streamInFlight) pumpStream()
+    }
+
+    private fun streamEnd(last: TouchPoint) {
+        if (!streamActive) return
+        streamPending.add(last)
+        streamEnding = true
+        if (!streamInFlight) pumpStream()
+    }
+
+    private fun pumpStream() {
+        if (!streamActive || streamInFlight) return
+        val from = streamLast ?: return
+        if (streamPending.isEmpty()) {
+            if (!streamEnding) return
+            streamPending.add(TouchPoint(from.x, from.y + 1f, from.t + 8))
+        }
         val dm = resources.displayMetrics
         val maxX = dm.widthPixels - 1f
         val maxY = dm.heightPixels - 1f
-        val path = Path()
-        // Sous-échantillonnage : 40 points suffisent pour un tracé fidèle.
-        val step = maxOf(1, points.size / 40)
-        points.forEachIndexed { i, p ->
-            if (i == 0 || i == points.lastIndex || i % step == 0) {
-                val x = p.x.coerceIn(0f, maxX)
-                val y = p.y.coerceIn(0f, maxY)
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
+        val path = Path().apply { moveTo(from.x.coerceIn(0f, maxX), from.y.coerceIn(0f, maxY)) }
+        var moved = false
+        for (p in streamPending) {
+            val x = p.x.coerceIn(0f, maxX)
+            val y = p.y.coerceIn(0f, maxY)
+            if (x != from.x || y != from.y) moved = true
+            path.lineTo(x, y)
         }
-        val maxDuration = GestureDescription.getMaxGestureDuration()
-        val duration = (points.last().t - points.first().t).coerceIn(40L, minOf(2500L, maxDuration))
-        val gesture = try {
-            GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, duration))
-                .build()
+        if (!moved) {
+            if (!streamEnding) {
+                streamPending.clear()
+                return
+            }
+            path.lineTo(from.x.coerceIn(0f, maxX), (from.y + 1f).coerceIn(0f, maxY))
+        }
+        val to = streamPending.last()
+        val duration = (to.t - from.t).coerceIn(8L, 250L)
+        val willContinue = !streamEnding
+        val stroke = try {
+            streamStroke?.continueStroke(path, 0, duration, willContinue)
+                ?: GestureDescription.StrokeDescription(path, 0, duration, willContinue)
         } catch (e: Exception) {
+            finishStream()
             return
         }
-        replayingGesture = true
-        overlay.setTouchable(false)
-        main.postDelayed({
-            val ok = dispatchGesture(gesture, object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) = restoreTouch()
-                override fun onCancelled(gestureDescription: GestureDescription?) = restoreTouch()
+        streamLast = to
+        streamPending.clear()
+        streamStroke = stroke
+        streamFinishing = !willContinue
+        streamInFlight = true
+        val ok = try {
+            dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    streamInFlight = false
+                    if (streamFinishing) finishStream() else pumpStream()
+                }
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    streamInFlight = false
+                    finishStream()
+                }
             }, main)
-            if (!ok) restoreTouch()
-        }, 24)
+        } catch (e: Exception) {
+            false
+        }
+        if (!ok) {
+            streamInFlight = false
+            finishStream()
+        }
     }
 
-    private fun restoreTouch() {
+    private fun finishStream() {
+        streamActive = false
+        streamStroke = null
+        streamPending.clear()
         main.postDelayed({
             replayingGesture = false
             if (::overlay.isInitialized) overlay.setTouchable(settings.touchMode == TouchMode.PROTECT)
             requestScan(0)
-        }, 140)
+        }, 120)
     }
 
     override fun onInterrupt() {

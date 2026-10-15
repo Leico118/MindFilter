@@ -19,6 +19,13 @@ import kotlin.math.min
 /** Point d'un geste, en coordonnées écran. */
 data class TouchPoint(val x: Float, val y: Float, val t: Long)
 
+/** Reçoit en direct les glissements faits sur un masque (pour les relayer à l'appli). */
+interface DragRelay {
+    fun onDragStart(first: TouchPoint)
+    fun onDragMove(p: TouchPoint)
+    fun onDragEnd(last: TouchPoint)
+}
+
 /**
  * Plaque de « verre dépoli » opaque (le contenu dessous reste illisible) avec une
  * capsule noire « Masqué » au centre. Aucun geste ne permet de révéler le contenu.
@@ -27,7 +34,7 @@ data class TouchPoint(val x: Float, val y: Float, val t: Long)
 class MaskView(
     context: Context,
     private var dark: Boolean,
-    private val onDrag: (List<TouchPoint>) -> Unit,
+    private val relay: DragRelay,
 ) : View(context) {
 
     private val dp = resources.displayMetrics.density
@@ -167,22 +174,31 @@ class MaskView(
                 points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
             }
             MotionEvent.ACTION_MOVE -> {
+                val batch = ArrayList<TouchPoint>(event.historySize + 1)
                 for (i in 0 until event.historySize) {
                     val dx = event.getHistoricalX(i) - event.x
                     val dy = event.getHistoricalY(i) - event.y
-                    points.add(TouchPoint(event.rawX + dx, event.rawY + dy, event.getHistoricalEventTime(i)))
+                    batch.add(TouchPoint(event.rawX + dx, event.rawY + dy, event.getHistoricalEventTime(i)))
                 }
-                points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
-                val first = points.first()
-                if (!dragging && hypot(event.rawX - first.x, event.rawY - first.y) > touchSlop) dragging = true
+                batch.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
+                if (dragging) {
+                    batch.forEach { relay.onDragMove(it) }
+                } else {
+                    points.addAll(batch)
+                    val first = points.first()
+                    if (hypot(event.rawX - first.x, event.rawY - first.y) > touchSlop) {
+                        // Le doigt glisse : à partir de maintenant, tout le mouvement est
+                        // relayé en direct à l'application (défilement naturel).
+                        dragging = true
+                        relay.onDragStart(first)
+                        points.drop(1).forEach { relay.onDragMove(it) }
+                        points.clear()
+                    }
+                }
             }
-            MotionEvent.ACTION_UP -> {
-                points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
-                if (dragging && points.size >= 2) onDrag(ArrayList(points))
-                points.clear()
-                dragging = false
-            }
-            MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragging) relay.onDragEnd(TouchPoint(event.rawX, event.rawY, event.eventTime))
+                // Simple appui, double appui ou appui long : rien n'est transmis.
                 points.clear()
                 dragging = false
             }

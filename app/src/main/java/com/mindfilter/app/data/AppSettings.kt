@@ -92,11 +92,11 @@ enum class MaskStyle(val label: String) { AUTO("Automatique"), LIGHT("Clair"), D
 enum class TouchMode(val label: String, val description: String) {
     PROTECT(
         "Protégé",
-        "Un appui sur un masque ne fait rien : la publication ne peut pas être ouverte. Un glissement sur un masque est relayé à l'application pour faire défiler la page.",
+        "Un appui sur un masque ne fait rien : la publication ne peut pas être ouverte. Un glissement sur un masque fait défiler la page normalement, en direct.",
     ),
     PASSTHROUGH(
-        "Fluide",
-        "Les masques laissent passer tous les gestes : défilement parfaitement fluide, mais un appui sur un masque ouvre la publication située dessous.",
+        "Traversant",
+        "Les masques laissent passer tous les gestes, y compris les appuis : un appui sur un masque ouvre la publication située dessous.",
     ),
 }
 
