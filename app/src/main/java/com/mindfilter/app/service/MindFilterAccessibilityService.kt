@@ -75,7 +75,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
                     s.enabledThemes != settings.enabledThemes ||
                     s.customFilters != settings.customFilters ||
                     s.sensitivity != settings.sensitivity
+                val filterChanged = s.monitoredPackages != settings.monitoredPackages ||
+                    s.protectionEnabled != settings.protectionEnabled
                 settings = s
+                if (filterChanged || !packageFilterApplied) applyPackageFilter(s)
                 if (rebuild) {
                     workerHandler.post {
                         val themes = s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] }
@@ -96,17 +99,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (!::overlay.isInitialized) return
         val s = settings
         if (!s.protectionEnabled) return
-        if (event.packageName?.toString() == packageName) {
-            // Ouverture de MindFilter : on retire les masques. Les autres événements
-            // émis par nos propres masques sont ignorés.
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) requestScan(0)
-            return
-        }
+        // Normalement Android ne nous envoie déjà que les événements des applis cochées
+        // (voir applyPackageFilter) ; ce test est une sécurité supplémentaire.
+        val evPkg = event.packageName?.toString() ?: return
+        if (evPkg !in s.monitoredPackages) return
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                val pkg = event.packageName?.toString()
-                if (pkg != null && pkg in s.monitoredPackages && overlay.count > 0 &&
+                if (overlay.count > 0 &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
                 ) {
                     // Suivi immédiat du défilement, la position exacte est recalculée juste après.
@@ -184,8 +184,62 @@ class MindFilterAccessibilityService : AccessibilityService() {
             } else if (!replayingGesture) {
                 val created = overlay.render(targets, dark, touchable)
                 if (created > 0) ServiceStatus.maskedThisSession.value += created
+                if (overlay.count > 0) startExitWatch()
             }
             ServiceStatus.currentlyMasked.value = overlay.count
+        }
+    }
+
+    @Volatile private var packageFilterApplied = false
+    @Volatile private var exitWatchRunning = false
+
+    /**
+     * Demande à Android de ne réveiller MindFilter QUE pour les applications cochées.
+     * Dans toute autre appli (WhatsApp, jeux, réglages…), le service ne reçoit plus
+     * aucun événement et reste totalement inactif. Protection en pause : on ne garde
+     * que notre propre appli, donc aucun réveil non plus.
+     */
+    private fun applyPackageFilter(s: SettingsState) {
+        val info = serviceInfo ?: return
+        val pkgs = if (s.protectionEnabled) s.monitoredPackages + packageName else setOf(packageName)
+        info.packageNames = pkgs.toTypedArray()
+        try {
+            serviceInfo = info
+            packageFilterApplied = true
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Tant que des masques sont affichés, vérifie toutes les 400 ms que l'appli
+     * surveillée est toujours au premier plan (Android ne nous prévient pas quand on
+     * passe à une appli non surveillée). S'arrête dès qu'il n'y a plus de masque :
+     * aucun coût le reste du temps.
+     */
+    private fun startExitWatch() {
+        if (exitWatchRunning || !::workerHandler.isInitialized) return
+        exitWatchRunning = true
+        workerHandler.postDelayed(exitWatch, 400)
+    }
+
+    private val exitWatch: Runnable = object : Runnable {
+        override fun run() {
+            if (!this@MindFilterAccessibilityService::overlay.isInitialized || ServiceStatus.currentlyMasked.value == 0) {
+                exitWatchRunning = false
+                return
+            }
+            val pkg = try {
+                rootInActiveWindow?.packageName?.toString()
+            } catch (e: Exception) {
+                null
+            }
+            val s = settings
+            if (!s.protectionEnabled || pkg == null || pkg !in s.monitoredPackages) {
+                exitWatchRunning = false
+                clearMasks()
+            } else {
+                workerHandler.postDelayed(this, 400)
+            }
         }
     }
 

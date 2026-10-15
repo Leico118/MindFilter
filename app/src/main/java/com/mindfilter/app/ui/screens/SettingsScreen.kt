@@ -177,7 +177,7 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1 · moteur par mots-clés et expressions")
+                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.1.1 · se réveille uniquement dans les applis surveillées")
             }
         }
     }
