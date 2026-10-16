@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Aucune autorisation Internet : rien ne quitte le téléphone. -->
+    <!--
+        Internet sert UNIQUEMENT au bouton « Vérifier les mises à jour » (Réglages) :
+        lecture de la dernière version publiée sur GitHub et téléchargement de l'APK.
+        Le service d'accessibilité n'envoie jamais rien : aucun texte ne quitte le téléphone.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Permet de proposer l'installation de la mise à jour (Android demande l'accord). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Liste des applications lançables (écran « Applications »), sans QUERY_ALL_PACKAGES. -->
     <queries>
@@ -43,5 +50,15 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 </manifest>

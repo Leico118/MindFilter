@@ -25,7 +25,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.mindfilter.app.update.Updater
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.PrivacyTip
@@ -187,7 +191,7 @@ fun SettingsScreen(resumeTick: Int) {
                 Spacer(Modifier.height(10.dp))
                 listOf(
                     "Toute l'analyse a lieu sur votre téléphone.",
-                    "L'application n'a même pas l'autorisation d'accéder à Internet.",
+                    "Internet ne sert qu'au bouton « Vérifier les mises à jour » : aucun texte analysé n'est jamais envoyé.",
                     "Aucun texte, aucune conversation, aucune capture d'écran n'est enregistré.",
                     "Les champs de saisie et les mots de passe ne sont jamais lus.",
                     "Pas de compte, pas de publicité, pas de suivi.",
@@ -198,11 +202,6 @@ fun SettingsScreen(resumeTick: Int) {
             }
         }
 
-        item {
-            GlassCard {
-                Header(Icons.Filled.Info, g.textSecondary, "Version de l'application", "MindFilter 0.2.6 · interface adaptée à l’écran")
-            }
-        }
 
         item {
             // Verrouillé par défaut et à chaque retour sur l'écran : impossible de changer
@@ -244,6 +243,81 @@ fun SettingsScreen(resumeTick: Int) {
                         "Appuyez sur « Modifier » pour changer de couleur. Le choix se reverrouille quand vous quittez les réglages.",
                         color = g.textSecondary, fontSize = 12.sp,
                     )
+                }
+            }
+        }
+
+        item { UpdateCard() }
+    }
+}
+
+@Composable
+private fun UpdateCard() {
+    val g = LocalGlass.current
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val st by Updater.state.collectAsStateWithLifecycle()
+    val current = remember { Updater.currentVersion(ctx) }
+
+    GlassCard {
+        val (tint, subtitle) = when (val u = st) {
+            is Updater.State.UpToDate -> g.positive to "MindFilter $current · à jour ✓"
+            is Updater.State.Available -> g.warning to "Version $current · nouvelle version ${u.version} disponible"
+            is Updater.State.Downloading -> g.accent to "Téléchargement de la version ${u.version}…"
+            is Updater.State.ReadyToInstall -> g.positive to "Version ${u.version} prête à installer"
+            else -> g.textSecondary to "MindFilter $current"
+        }
+        Header(Icons.Filled.SystemUpdate, tint, "Mise à jour", subtitle)
+        Spacer(Modifier.height(12.dp))
+        when (val u = st) {
+            is Updater.State.Idle, is Updater.State.UpToDate -> {
+                PillButton("Vérifier les mises à jour", Modifier.fillMaxWidth()) { scope.launch { Updater.check(ctx) } }
+            }
+            is Updater.State.Checking -> {
+                LinearProgressIndicator(Modifier.fillMaxWidth(), color = g.accent, trackColor = g.chip)
+                Spacer(Modifier.height(8.dp))
+                Text("Recherche de la dernière version…", color = g.textSecondary, fontSize = 13.sp)
+            }
+            is Updater.State.Available -> {
+                PillButton("Télécharger la version ${u.version}", Modifier.fillMaxWidth()) {
+                    scope.launch { Updater.download(ctx, u.version, u.apkUrl) }
+                }
+            }
+            is Updater.State.Downloading -> {
+                LinearProgressIndicator(
+                    progress = { u.progress },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = g.accent,
+                    trackColor = g.chip,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("${(u.progress * 100).toInt()} %", color = g.textSecondary, fontSize = 13.sp)
+            }
+            is Updater.State.ReadyToInstall -> {
+                val allowed = remember(st) { mutableStateOf(Updater.canInstall(ctx)) }
+                PillButton("Installer la mise à jour", Modifier.fillMaxWidth()) {
+                    if (Updater.canInstall(ctx)) Updater.install(ctx)
+                    else { allowed.value = false; Updater.openInstallPermission(ctx) }
+                }
+                if (!allowed.value) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Android va vous demander d'autoriser MindFilter à installer des applications : activez l'option, revenez ici, puis appuyez à nouveau sur « Installer la mise à jour ». Cette autorisation n'est demandée qu'une seule fois.",
+                        color = g.textSecondary, fontSize = 12.sp,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Vos réglages sont conservés : la nouvelle version s'installe par-dessus l'ancienne.",
+                    color = g.textSecondary, fontSize = 12.sp,
+                )
+            }
+            is Updater.State.Error -> {
+                Text(u.message, color = g.warning, fontSize = 13.sp)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PillButton("Réessayer", Modifier.weight(1f)) { scope.launch { Updater.check(ctx) } }
+                    PillButton("Via le navigateur", Modifier.weight(1f), filled = false) { Updater.openInBrowser(ctx) }
                 }
             }
         }

@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -108,6 +109,10 @@ private fun MindFilterRoot(resumeTick: Int) {
     // se cache pour laisser la place ; elle revient quand le clavier se ferme.
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
+    // Mémorise la position de défilement de chaque écran (et de chaque catégorie) :
+    // en revenant en arrière, la liste réapparaît exactement là où on l'avait quittée.
+    val screenStates = rememberSaveableStateHolder()
+
     Box(
         Modifier
             .fillMaxSize()
@@ -118,6 +123,7 @@ private fun MindFilterRoot(resumeTick: Int) {
             transitionSpec = { fadeIn() togetherWith fadeOut() },
             label = "screen",
         ) { (cat, t) ->
+            screenStates.SaveableStateProvider(if (cat != null) "cat-$cat" else "tab-$t") {
             when {
                 cat != null -> CategoryDetailScreen(cat) { openCategory = null }
                 t == 0 -> HomeScreen(resumeTick, onOpenCategories = { tab = 1 }, onOpenApps = { tab = 2 })
@@ -125,6 +131,7 @@ private fun MindFilterRoot(resumeTick: Int) {
                 t == 2 -> AppsScreen()
                 t == 3 -> FiltersScreen()
                 else -> SettingsScreen(resumeTick)
+            }
             }
         }
         if (openCategory == null && !imeVisible) {
