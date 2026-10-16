@@ -43,8 +43,32 @@ object TextNormalizer {
     }
 }
 
-/** Une expression compilée. [key] sert de pré-filtre rapide (3 premières lettres). */
-class CompiledAlt(val key: String?, val regex: Regex) {
+/** Mots d'un texte normalisé, pour savoir très vite si une expression peut s'y trouver. */
+internal class Tokens(norm: String) {
+    private val set = HashSet<String>()
+    private val sorted: Array<String>
+
+    init {
+        for (tok in norm.split(' ')) if (tok.isNotEmpty()) set.add(tok)
+        sorted = set.toTypedArray().also { java.util.Arrays.sort(it) }
+    }
+
+    fun present(a: CompiledAlt): Boolean {
+        val k = a.key ?: return true
+        if (!a.prefix) return k in set
+        val idx = java.util.Arrays.binarySearch(sorted, k)
+        if (idx >= 0) return true
+        val ins = -idx - 1
+        return ins < sorted.size && sorted[ins].startsWith(k)
+    }
+}
+
+/**
+ * Une expression compilée. [key] = premier mot de l'expression, sert de pré-filtre :
+ * l'expression régulière n'est lancée que si ce mot (ou un mot qui commence par lui
+ * quand [prefix]) est présent dans le texte. Évite des milliers de recherches inutiles.
+ */
+class CompiledAlt(val key: String?, val regex: Regex, val prefix: Boolean = false) {
     companion object {
         fun compile(raw: String): CompiledAlt? {
             if (raw.startsWith("re:")) {
@@ -63,8 +87,9 @@ class CompiledAlt(val key: String?, val regex: Regex) {
                 if (w.endsWith("*")) Regex.escape(w.trimEnd('*').replace("*", "")) + "[a-z0-9]*"
                 else Regex.escape(w.replace("*", ""))
             }
-            val key = words.first().trimEnd('*').replace("*", "").take(3)
-            return CompiledAlt(key, Regex("(?<![a-z0-9])$body(?![a-z0-9])"))
+            val first = words.first()
+            val key = first.replace("*", "")
+            return CompiledAlt(key, Regex("(?<![a-z0-9])$body(?![a-z0-9])"), prefix = first.endsWith("*"))
         }
     }
 }
@@ -130,12 +155,12 @@ class KeywordClassifier(
     private val level = levelOf(restrictionLevel)
     private val altCache = HashMap<String, CompiledAlt?>()
     private val compiled: List<CompiledTheme>
-    private val exclusions: List<Regex> = EXCLUSIONS.mapNotNull { CompiledAlt.compile(it)?.regex }
-    private val humorWords: List<Regex> = HUMOR_MARKERS.mapNotNull { CompiledAlt.compile(it)?.regex }
-    private val fictionWords: List<Regex> = FICTION_MARKERS.mapNotNull { CompiledAlt.compile(it)?.regex }
+    private val exclusions: List<CompiledAlt> = EXCLUSIONS.mapNotNull { CompiledAlt.compile(it) }
+    private val humorWords: List<CompiledAlt> = HUMOR_MARKERS.mapNotNull { CompiledAlt.compile(it) }
+    private val fictionWords: List<CompiledAlt> = FICTION_MARKERS.mapNotNull { CompiledAlt.compile(it) }
 
     private val resultCache = object : LinkedHashMap<String, MatchResult>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MatchResult>?): Boolean = size > 800
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MatchResult>?): Boolean = size > 3000
     }
 
     val isEmpty: Boolean
@@ -233,7 +258,10 @@ class KeywordClassifier(
         // Les fins de phrase et séparateurs (« . ! ? · | », retour à la ligne) deviennent un
         // mot-repère : une association de mots ne peut pas enjamber deux phrases.
         var norm = TextNormalizer.normalize(SENTENCE_END.replace(raw, " $SEP "))
-        for (ex in exclusions) if (ex.containsMatchIn(norm)) norm = ex.replace(norm, " ")
+        val first = Tokens(norm)
+        for (ex in exclusions) {
+            if (first.present(ex) && ex.regex.containsMatchIn(norm)) norm = ex.regex.replace(norm, " ")
+        }
         // Exceptions de l'utilisateur : on retire le mot du texte et on écarte les thèmes qu'il couvre.
         val skipThemes = HashSet<String>()
         for (ex in userExceptions) {
@@ -246,8 +274,9 @@ class KeywordClassifier(
         if (norm.length < 6) return null
 
         // Contexte : humour (émojis rieurs, mdr…) ou fiction (jeu vidéo, film, série…).
-        val humor = LAUGH_EMOJI.containsMatchIn(raw) || humorWords.any { it.containsMatchIn(norm) }
-        val fiction = fictionWords.any { it.containsMatchIn(norm) }
+        val tokens = Tokens(norm)
+        val humor = LAUGH_EMOJI.containsMatchIn(raw) || humorWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) }
+        val fiction = fictionWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) }
         // blocked = aux niveaux bas, ce contexte empêche tout masquage (sauf filtres
         // personnels et thèmes qui ignorent le contexte, comme les contenus pour adultes).
         var penalty = 0
@@ -272,14 +301,9 @@ class KeywordClassifier(
             wordAt[i] = w
             i++
         }
-        val keys = HashSet<String>()
-        for (tok in norm.split(' ')) {
-            if (tok.isEmpty()) continue
-            keys.add(tok.take(1)); keys.add(tok.take(2)); keys.add(tok.take(3))
-        }
         val memo = HashMap<CompiledAlt, IntArray>()
         fun positions(a: CompiledAlt): IntArray = memo.getOrPut(a) {
-            if (a.key != null && a.key !in keys) EMPTY
+            if (!tokens.present(a)) EMPTY
             else a.regex.findAll(norm).map { wordAt[it.range.first] }.take(30).toList().toIntArray()
         }
 
@@ -290,7 +314,7 @@ class KeywordClassifier(
             if (!custom && t.id in skipThemes) continue
             var score = 0
             for (rule in t.rules) {
-                if (matches(rule, ::positions)) score += rule.weight
+                if (matches(rule, tokens, ::positions)) score += rule.weight
             }
             val threshold = (t.fixedThreshold ?: level.threshold) + if (custom || t.ignoreContext) 0 else penalty
             if (score >= threshold && (best == null || score > best.score)) {
@@ -305,7 +329,11 @@ class KeywordClassifier(
      * exige que les mots de chaque groupe soient proches (moins de [Level.window] mots) :
      * « retrouvé … sans vie » dans la même phrase, pas à deux bouts d'une page.
      */
-    private fun matches(rule: CompiledRule, positions: (CompiledAlt) -> IntArray): Boolean {
+    private fun matches(rule: CompiledRule, tokens: Tokens, positions: (CompiledAlt) -> IntArray): Boolean {
+        // Pré-filtre : chaque groupe doit avoir au moins un mot présent, sinon inutile de chercher.
+        for (g in rule.groups) if (g.none { tokens.present(it) }) return false
+        if (rule.groups.isEmpty()) return true
+        if (!rule.isCombo) return rule.groups[0].any { positions(it).isNotEmpty() }
         val perGroup = rule.groups.map { g ->
             val all = ArrayList<Int>()
             for (a in g) positions(a).forEach { all.add(it) }

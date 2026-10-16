@@ -1,6 +1,7 @@
 package com.mindfilter.app.service
 
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import com.mindfilter.app.engine.ContentClassifier
 
@@ -13,6 +14,8 @@ class SNode(
 ) {
     val children = ArrayList<SNode>(4)
     var fullText: String = ""
+    /** Ce nœud ou un de ses descendants est une liste qui défile. */
+    var hasScrollable: Boolean = scrollable
 }
 
 /**
@@ -28,7 +31,7 @@ data class MaskTarget(val key: String, val rect: Rect, val clip: Rect, val label
 object ScreenScanner {
     private const val MAX_NODES = 2500
     private const val MAX_DEPTH = 60
-    private const val MAX_TEXT = 1200
+    private const val MAX_TEXT = 1500
 
     fun snapshot(root: AccessibilityNodeInfo): SNode? {
         val counter = intArrayOf(0)
@@ -54,11 +57,20 @@ object ScreenScanner {
         val s = SNode(r, node.isScrollable, own, node.className?.toString().orEmpty())
         for (i in 0 until node.childCount) {
             val child = try {
-                node.getChild(i)
+                // Android 13+ : on demande à Android d'envoyer d'un coup les nœuds suivants
+                // dans l'ordre où on les lit (beaucoup moins d'allers-retours avec l'appli).
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    node.getChild(i, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_DEPTH_FIRST)
+                } else {
+                    node.getChild(i)
+                }
             } catch (e: Exception) {
                 null
             } ?: continue
-            build(child, depth + 1, counter)?.let { s.children.add(it) }
+            build(child, depth + 1, counter)?.let {
+                s.children.add(it)
+                if (it.hasScrollable) s.hasScrollable = true
+            }
         }
         // Texte complet du sous-arbre (limité) calculé de bas en haut.
         val sb = StringBuilder(s.ownText)
@@ -84,6 +96,12 @@ object ScreenScanner {
         return out
     }
 
+    /**
+     * Parcourt TOUT l'écran : chaque publication est analysée séparément (avant, l'analyse
+     * partait du texte global de l'écran, limité en taille, et pouvait rater les publications
+     * situées plus bas). Les résultats sont mémorisés : une publication déjà analysée ne
+     * l'est plus pendant le défilement. Renvoie vrai si au moins un masque a été ajouté.
+     */
     private fun visit(
         n: SNode,
         clip: Rect,
@@ -91,26 +109,31 @@ object ScreenScanner {
         maxHeight: Int,
         out: MutableList<MaskTarget>,
         usedKeys: MutableSet<String>,
-    ) {
-        if (n.fullText.isBlank() || out.size >= 40) return
-        val match = classifier.classify(n.fullText) ?: return
-
+    ): Boolean {
+        if (n.fullText.isBlank() || out.size >= 40) return false
         val childClip = Rect(clip)
-        if (n.scrollable && !childClip.intersect(n.bounds)) return
+        if (n.scrollable && !childClip.intersect(n.bounds)) return false
 
         val tooBig = n.scrollable || n.bounds.height() > maxHeight || n.bounds.width() <= 0
         if (!tooBig) {
+            val match = classifier.classify(n.fullText) ?: return false
             add(n, clip, match.label, out, usedKeys)
-            return
+            return true
         }
-        val matching = n.children.filter { it.fullText.isNotBlank() && classifier.classify(it.fullText) != null }
-        if (matching.isNotEmpty()) {
-            matching.forEach { visit(it, childClip, classifier, maxHeight, out, usedKeys) }
-        } else {
-            // Le sujet n'apparaît qu'en combinant plusieurs blocs : on masque ces blocs.
-            n.children.filter { it.fullText.isNotBlank() && it.bounds.height() <= maxHeight }
-                .forEach { add(it, childClip, match.label, out, usedKeys) }
+        var any = false
+        for (c in n.children) if (visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
+        if (any || n.hasScrollable) return any
+        // Grand bloc sans liste (ex. article ouvert) : le sujet n'apparaît qu'en combinant
+        // plusieurs paragraphes. On masque alors ces paragraphes.
+        val match = classifier.classify(n.fullText) ?: return false
+        var added = false
+        for (c in n.children) {
+            if (c.fullText.isNotBlank() && c.bounds.height() <= maxHeight) {
+                add(c, childClip, match.label, out, usedKeys)
+                added = true
+            }
         }
+        return added
     }
 
     private fun add(n: SNode, clip: Rect, label: String, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {

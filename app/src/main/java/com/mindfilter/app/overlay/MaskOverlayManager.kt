@@ -5,12 +5,21 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
 import com.mindfilter.app.service.MaskTarget
 
 /**
- * Gère une fenêtre de superposition d'accessibilité par masque.
+ * Affiche tous les masques dans UNE SEULE fenêtre de superposition d'accessibilité,
+ * plein écran et totalement traversable (FLAG_NOT_TOUCHABLE).
+ *
+ * Avant, chaque masque avait sa propre fenêtre : pour le suivre pendant le défilement,
+ * Android devait déplacer chaque fenêtre (opération lente, gérée par le système).
+ * Désormais, déplacer un masque revient à changer sa position à l'intérieur de notre
+ * fenêtre : c'est instantané et calculé directement par le processeur graphique.
+ *
  * TYPE_ACCESSIBILITY_OVERLAY ne nécessite pas l'autorisation « afficher par-dessus ».
  * Toutes les méthodes doivent être appelées sur le thread principal.
  */
@@ -18,12 +27,17 @@ class MaskOverlayManager(
     private val context: Context,
     private val relay: DragRelay,
 ) {
-    private class Entry(val view: MaskView, val params: WindowManager.LayoutParams, val rect: Rect, val clip: Rect)
+    private class Entry(val view: MaskView, val rect: Rect, val clip: Rect)
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val entries = LinkedHashMap<String, Entry>()
-    private var touchable = false
     private var dark = false
+
+    private var container: FrameLayout? = null
+    /** Position de notre fenêtre sur l'écran (normalement 0,0). */
+    private var originX = 0
+    private var originY = 0
+    private val loc = IntArray(2)
 
     val count: Int get() = entries.size
 
@@ -40,13 +54,15 @@ class MaskOverlayManager(
             } else {
                 e.view.setDark(darkStyle)
                 if (e.rect != t.rect || e.clip != t.clip) {
+                    e.rect.set(t.rect)
                     e.clip.set(t.clip)
-                    move(e, t.rect)
+                    place(e)
                 }
             }
         }
         val stale = entries.keys.filter { it !in wanted }
         stale.forEach { remove(it) }
+        if (entries.isEmpty()) detach()
         return created
     }
 
@@ -54,48 +70,52 @@ class MaskOverlayManager(
     fun offsetAll(dx: Int, dy: Int) {
         if (dx == 0 && dy == 0) return
         for (e in entries.values) {
-            val r = Rect(e.rect)
-            r.offset(dx, dy)
-            move(e, r)
+            e.rect.offset(dx, dy)
+            place(e)
         }
     }
 
-    fun setTouchable(value: Boolean) {
-        touchable = value
-        for (e in entries.values) {
-            e.params.flags = flags(value)
-            safeUpdate(e)
-        }
-    }
+    /** Conservé pour compatibilité : les masques laissent toujours passer les gestes. */
+    @Suppress("UNUSED_PARAMETER")
+    fun setTouchable(value: Boolean) {}
 
     fun clear() {
         entries.keys.toList().forEach { remove(it) }
+        detach()
     }
 
-    private fun flags(touchable: Boolean): Int {
-        var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+    private fun ensureContainer(): FrameLayout? {
+        container?.let { return it }
+        val c = FrameLayout(context).apply {
+            clipChildren = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            // Si la fenêtre n'est pas exactement en (0,0), on corrige toutes les positions.
+            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                v.getLocationOnScreen(loc)
+                if (loc[0] != originX || loc[1] != originY) {
+                    originX = loc[0]
+                    originY = loc[1]
+                    entries.values.forEach { place(it) }
+                }
+            }
+        }
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-        if (!touchable) f = f or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        return f
-    }
-
-    private fun add(t: MaskTarget): Boolean {
-        val view = MaskView(context, dark, relay)
-        val shown = visiblePart(t.rect, t.clip)
         val p = WindowManager.LayoutParams(
-            shown.width().coerceAtLeast(1),
-            shown.height().coerceAtLeast(1),
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            flags(touchable),
+            flags,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = shown.left
-            y = shown.top
-            title = "MindFilterMask"
+            x = 0
+            y = 0
+            title = "MindFilterMasks"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                 fitInsetsTypes = 0
@@ -104,16 +124,41 @@ class MaskOverlayManager(
             }
         }
         return try {
-            view.alpha = 0f
-            view.scaleX = 0.97f
-            view.scaleY = 0.97f
-            wm.addView(view, p)
-            view.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                .setDuration(200).setInterpolator(DecelerateInterpolator()).start()
-            if (shown.isEmpty) view.visibility = android.view.View.INVISIBLE
-            entries[t.key] = Entry(view, p, Rect(t.rect), Rect(t.clip))
-            true
+            wm.addView(c, p)
+            originX = 0
+            originY = 0
+            container = c
+            c
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun detach() {
+        val c = container ?: return
+        container = null
+        try {
+            wm.removeViewImmediate(c)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun add(t: MaskTarget): Boolean {
+        val c = ensureContainer() ?: return false
+        val view = MaskView(context, dark, relay)
+        val e = Entry(view, Rect(t.rect), Rect(t.clip))
+        val shown = visiblePart(e.rect, e.clip)
+        val lp = FrameLayout.LayoutParams(shown.width().coerceAtLeast(1), shown.height().coerceAtLeast(1))
+        lp.gravity = Gravity.TOP or Gravity.START
+        return try {
+            c.addView(view, lp)
+            entries[t.key] = e
+            place(e)
+            // Apparition très courte : le contenu n'a pas le temps d'être lu.
+            view.alpha = 0.55f
+            view.animate().alpha(1f).setDuration(90).setInterpolator(DecelerateInterpolator()).start()
+            true
+        } catch (ex: Exception) {
             false
         }
     }
@@ -124,38 +169,37 @@ class MaskOverlayManager(
         return if (r.intersect(clip)) r else Rect(clip.left, clip.top, clip.left, clip.top)
     }
 
-    private fun move(e: Entry, full: Rect) {
-        e.rect.set(full)
-        val shown = visiblePart(full, e.clip)
+    /**
+     * Place le masque : la position change par simple translation (aucun recalcul de
+     * fenêtre) ; la taille ne change que lorsque la publication passe sous un bord.
+     */
+    private fun place(e: Entry) {
+        val shown = visiblePart(e.rect, e.clip)
         if (shown.isEmpty) {
-            e.view.visibility = android.view.View.INVISIBLE
+            e.view.visibility = View.INVISIBLE
             return
         }
-        e.view.visibility = android.view.View.VISIBLE
-        e.params.x = shown.left
-        e.params.y = shown.top
-        e.params.width = shown.width()
-        e.params.height = shown.height()
-        safeUpdate(e)
+        e.view.visibility = View.VISIBLE
+        e.view.translationX = (shown.left - originX).toFloat()
+        e.view.translationY = (shown.top - originY).toFloat()
+        val lp = e.view.layoutParams ?: return
+        if (lp.width != shown.width() || lp.height != shown.height()) {
+            lp.width = shown.width()
+            lp.height = shown.height()
+            e.view.layoutParams = lp
+        }
     }
 
     /** Le point (coordonnées écran) est-il sous un masque visible ? */
     fun hits(x: Int, y: Int): Boolean = entries.values.any { e ->
-        e.view.visibility == android.view.View.VISIBLE && visiblePart(e.rect, e.clip).contains(x, y)
-    }
-
-    private fun safeUpdate(e: Entry) {
-        try {
-            wm.updateViewLayout(e.view, e.params)
-        } catch (_: Exception) {
-        }
+        e.view.visibility == View.VISIBLE && visiblePart(e.rect, e.clip).contains(x, y)
     }
 
     private fun remove(key: String) {
         val e = entries.remove(key) ?: return
         try {
             e.view.animate().cancel()
-            wm.removeViewImmediate(e.view)
+            container?.removeView(e.view)
         } catch (_: Exception) {
         }
     }

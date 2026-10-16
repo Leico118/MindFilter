@@ -122,14 +122,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
                         if (overlay.count > 0) overlay.offsetAll(-dx, 0)
                     }
                 }
-                requestScan(25)
+                requestScan(0)
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> onClickEvent(event)
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 onWindowChanged()
-                requestScan(20)
+                requestScan(0)
             }
-            else -> requestScan(60)
+            else -> requestScan(16)
         }
     }
 
@@ -138,7 +138,9 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (scanPending) return
         scanPending = true
         val sinceLast = System.currentTimeMillis() - lastScanAt
-        val wait = maxOf(delayMs, 45L - sinceLast).coerceAtLeast(0L)
+        // Pas plus d'une analyse toutes les ~33 ms (30 par seconde), mais la première
+        // part immédiatement : un contenu qui apparaît est analysé sans attendre.
+        val wait = maxOf(delayMs, MIN_INTERVAL_MS - sinceLast).coerceAtLeast(0L)
         workerHandler.postDelayed(scanRunnable, wait)
     }
 
@@ -151,7 +153,11 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (!s.protectionEnabled || c == null || replayingGesture) return
 
         val root = try {
-            rootInActiveWindow
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                getRootInActiveWindow(android.view.accessibility.AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_DEPTH_FIRST)
+            } else {
+                rootInActiveWindow
+            }
         } catch (e: Exception) {
             null
         }
@@ -317,6 +323,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
         } else {
             guardUntil = 0L
         }
+    }
+
+    private companion object {
+        const val MIN_INTERVAL_MS = 33L
     }
 
     override fun onInterrupt() {
