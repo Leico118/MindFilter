@@ -95,17 +95,9 @@ fun MindFilterTheme(
 ) {
     val systemDark = isSystemInDarkTheme()
     val glass = when (style) {
-        AppStyle.VERRE -> verreColors(
-            when (mode) {
-                ThemeMode.SYSTEM -> systemDark
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-            },
-            accentColor,
-        )
-        AppStyle.NOIR -> noirColors(accentColor)
-        AppStyle.PAPIER -> papierColors(accentColor)
-        AppStyle.CONTRASTE -> ContrasteColors
+        AppStyle.VERRE -> verreColors(modeDark(mode, systemDark), accentColor)
+        AppStyle.NOIR -> if (modeDark(mode, systemDark)) noirColors(accentColor) else sobreClairColors(accentColor)
+        AppStyle.CONTRASTE -> contrasteColors(accentColor)
     }
     val dark = glass.dark
 
@@ -198,31 +190,31 @@ private fun noirColors(accentColor: AccentColor) = DarkGlass.copy(
     tabBottom = Color(0xF7141418),
 )
 
-/** Papier : clair et chaleureux, titres à empattements, comme un journal. */
-private fun papierColors(accentColor: AccentColor) = LightGlass.copy(
-    bgTop = Color(0xFFF3EFE6),
-    bgBottom = Color(0xFFF3EFE6),
+/** Sobre en mode clair : fond gris très clair, cartes blanches pleines, pas de halos. */
+private fun sobreClairColors(accentColor: AccentColor) = LightGlass.copy(
+    bgTop = Color(0xFFF2F2F4),
+    bgBottom = Color(0xFFF2F2F4),
     blobA = Color.Transparent,
     blobB = Color.Transparent,
-    glassTop = Color(0xFFFFFDF8),
-    glassBottom = Color(0xFFFFFDF8),
-    glassBorderTop = Color(0x1F2D2314),
-    glassBorderBottom = Color(0x1F2D2314),
-    text = Color(0xFF1F1C17),
-    textSecondary = Color(0xFF5C564C),
+    glassTop = Color(0xFFFFFFFF),
+    glassBottom = Color(0xFFFFFFFF),
+    glassBorderTop = Color(0x14000000),
+    glassBorderBottom = Color(0x14000000),
     accent = Color(accentColor.light),
     onAccent = Color(accentColor.onLight),
-    positive = Color(0xFF047857),
-    warning = Color(0xFFA16207),
-    danger = Color(0xFFB91C1C),
-    chip = Color(0xFFEBE6DA),
-    tabTop = Color(0xFAFFFDF8),
-    tabBottom = Color(0xFAF7F3EA),
-    serifTitles = true,
+    chip = Color(0xFFE8E8EC),
+    tabTop = Color(0xFAFFFFFF),
+    tabBottom = Color(0xFAFFFFFF),
 )
 
-/** Contraste : lisibilité maximale, noir, blanc et jaune (couleur imposée). */
-private val ContrasteColors = DarkGlass.copy(
+private fun modeDark(mode: ThemeMode, systemDark: Boolean) = when (mode) {
+    ThemeMode.SYSTEM -> systemDark
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+}
+
+/** Contraste : lisibilité maximale, noir et blanc, avec la couleur choisie. */
+private fun contrasteColors(accentColor: AccentColor) = DarkGlass.copy(
     bgTop = Color(0xFF000000),
     bgBottom = Color(0xFF000000),
     blobA = Color.Transparent,
@@ -233,8 +225,8 @@ private val ContrasteColors = DarkGlass.copy(
     glassBorderBottom = Color(0x66FFFFFF),
     text = Color(0xFFFFFFFF),
     textSecondary = Color(0xFFEDEDED),
-    accent = Color(0xFFFFD60A),
-    onAccent = Color(0xFF000000),
+    accent = Color(accentColor.dark),
+    onAccent = Color(accentColor.onDark),
     positive = Color(0xFF4CD964),
     warning = Color(0xFFFFD60A),
     danger = Color(0xFFFF6B6B),

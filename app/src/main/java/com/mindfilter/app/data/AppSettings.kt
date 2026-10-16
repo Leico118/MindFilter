@@ -87,12 +87,11 @@ enum class AccentColor(val label: String, val light: Long, val dark: Long, val o
 
 enum class ThemeMode(val label: String) { SYSTEM("Automatique"), LIGHT("Clair"), DARK("Sombre") }
 
-/** Thèmes de l'interface, identiques à ceux de Radar. */
+/** Thèmes de l'interface (inspirés de Radar). Le mode clair / sombre s'applique à Verre et Sobre. */
 enum class AppStyle(val label: String, val description: String, val previewTop: Long, val previewBottom: Long) {
     VERRE("Verre", "Bulles translucides sur fond teinté", 0xFF4A3A1C, 0xFF2A241C),
-    NOIR("Noir", "Sobre et professionnel", 0xFF0A0A0C, 0xFF1C1C22),
-    PAPIER("Papier", "Clair, comme une page de journal", 0xFFF3EFE6, 0xFFFFFDF8),
-    CONTRASTE("Contraste", "Lisibilité maximale : noir, blanc et jaune", 0xFF000000, 0xFFFFD60A),
+    NOIR("Sobre", "Fond uni, sans effets", 0xFF0A0A0C, 0xFFF2F2F4),
+    CONTRASTE("Contraste", "Lisibilité maximale : noir et blanc", 0xFF000000, 0xFFFFFFFF),
 }
 
 enum class MaskStyle(val label: String) { AUTO("Automatique"), LIGHT("Clair"), DARK("Sombre") }
@@ -188,7 +187,10 @@ object AppSettings {
             },
             accent = enumOr(prefs.getString("accent", null), d.accent),
             themeMode = enumOr(prefs.getString("themeMode", null), d.themeMode),
-            appStyle = enumOr(prefs.getString("appStyle", null), d.appStyle),
+            appStyle = prefs.getString("appStyle", null).let { v ->
+                // L'ancien thème « Papier » (0.2.9) est fusionné dans « Sobre ».
+                if (v == "PAPIER") AppStyle.NOIR else enumOr(v, d.appStyle)
+            },
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),

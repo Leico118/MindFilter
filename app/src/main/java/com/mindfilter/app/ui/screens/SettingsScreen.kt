@@ -141,11 +141,54 @@ fun SettingsScreen(resumeTick: Int) {
                 Header(Icons.Filled.Palette, Color(0xFFAF52DE), "Thème", "${s.appStyle.label} · ${s.appStyle.description}")
                 Spacer(Modifier.height(12.dp))
                 StylePicker(s.appStyle) { v -> AppSettings.update { it.copy(appStyle = v) } }
-                if (s.appStyle == AppStyle.VERRE) {
-                    Spacer(Modifier.height(14.dp))
-                    Text("Mode clair et sombre", color = g.textSecondary, fontSize = 13.sp)
+                if (s.appStyle != AppStyle.CONTRASTE) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Mode", color = g.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
                     Segmented(ThemeMode.entries.toList(), s.themeMode, { it.label }) { v -> AppSettings.update { it.copy(themeMode = v) } }
+                }
+
+                // Couleur, juste sous les thèmes. Verrouillée par défaut et à chaque retour sur
+                // l'écran : impossible de la changer par un appui involontaire en faisant défiler.
+                var unlocked by remember { mutableStateOf(false) }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Couleur · ${s.accent.label}",
+                        color = g.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (unlocked) g.accent else g.chip)
+                            .clickable { unlocked = !unlocked }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (unlocked) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                            contentDescription = if (unlocked) "Verrouiller" else "Déverrouiller",
+                            tint = if (unlocked) g.onAccent else g.text,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            if (unlocked) "Verrouiller" else "Modifier",
+                            color = if (unlocked) g.onAccent else g.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                AccentPicker(s.accent, { a -> AppSettings.update { it.copy(accent = a) } }, enabled = unlocked)
+                if (!unlocked) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Appuyez sur « Modifier » pour changer de couleur. Le choix se reverrouille quand vous quittez les réglages.",
+                        color = g.textSecondary, fontSize = 12.sp,
+                    )
                 }
             }
         }
@@ -214,118 +257,56 @@ fun SettingsScreen(resumeTick: Int) {
         }
 
 
-        item {
-            // Verrouillé par défaut et à chaque retour sur l'écran : impossible de changer
-            // la couleur par un appui involontaire en faisant défiler les réglages.
-            var unlocked by remember { mutableStateOf(false) }
-            GlassCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Header(Icons.Filled.ColorLens, g.accent, "Couleur de l'application", s.accent.label)
-                    }
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (unlocked) g.accent else g.chip)
-                            .clickable { unlocked = !unlocked }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (unlocked) Icons.Filled.LockOpen else Icons.Filled.Lock,
-                            contentDescription = if (unlocked) "Verrouiller" else "Déverrouiller",
-                            tint = if (unlocked) g.onAccent else g.text,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            if (unlocked) "Verrouiller" else "Modifier",
-                            color = if (unlocked) g.onAccent else g.text,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                val accentLocked = s.appStyle == AppStyle.CONTRASTE
-                AccentPicker(s.accent, { a -> AppSettings.update { it.copy(accent = a) } }, enabled = unlocked && !accentLocked)
-                if (accentLocked) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Le thème Contraste utilise toujours le jaune pour rester le plus lisible possible. Votre couleur revient si vous changez de thème.",
-                        color = g.textSecondary, fontSize = 12.sp,
-                    )
-                } else if (!unlocked) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Appuyez sur « Modifier » pour changer de couleur. Le choix se reverrouille quand vous quittez les réglages.",
-                        color = g.textSecondary, fontSize = 12.sp,
-                    )
-                }
-            }
-        }
-
         item { UpdateCard() }
     }
 }
 
-/** Choix du thème : quatre vignettes avec un aperçu des couleurs, comme dans Radar. */
+/** Choix du thème : trois vignettes côte à côte avec un aperçu des couleurs, comme dans Radar. */
 @Composable
 private fun StylePicker(selected: AppStyle, onSelect: (AppStyle) -> Unit) {
     val g = LocalGlass.current
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AppStyle.entries.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { st ->
-                    val isSel = st == selected
-                    val shape = RoundedCornerShape(18.dp)
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(shape)
-                            .background(g.chip)
-                            .border(2.dp, if (isSel) g.accent else Color.Transparent, shape)
-                            .clickable { onSelect(st) }
-                            .padding(10.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    Brush.linearGradient(listOf(Color(st.previewTop), Color(st.previewBottom))),
-                                )
-                                .border(1.dp, g.glassBorderTop, RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.CenterEnd,
-                        ) {
-                            if (isSel) {
-                                Icon(
-                                    Icons.Filled.CheckCircle,
-                                    contentDescription = "Thème choisi",
-                                    tint = g.accent,
-                                    modifier = Modifier.padding(end = 8.dp).size(20.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            st.label,
-                            color = g.text,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AppStyle.entries.forEach { st ->
+            val isSel = st == selected
+            val shape = RoundedCornerShape(16.dp)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(shape)
+                    .background(g.chip)
+                    .border(2.dp, if (isSel) g.accent else Color.Transparent, shape)
+                    .clickable { onSelect(st) }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.linearGradient(listOf(Color(st.previewTop), Color(st.previewBottom))),
                         )
-                        Text(
-                            st.description,
-                            color = g.textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            minLines = 2,
-                            maxLines = 2,
+                        .border(1.dp, g.glassBorderTop, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSel) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "Thème choisi",
+                            tint = g.accent,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    st.label,
+                    color = if (isSel) g.text else g.textSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
             }
         }
     }
