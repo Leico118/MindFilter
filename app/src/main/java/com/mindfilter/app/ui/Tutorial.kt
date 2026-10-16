@@ -75,7 +75,7 @@ val TUTORIAL_STEPS = listOf(
     TutorialStep(
         tab = 0, anchor = "home_status", emoji = "🛡️",
         title = "1. Activez le service",
-        text = "Sans cette autorisation, rien ne peut être masqué. Suivez les étapes de cette carte : si Android bloque l'activation (« Paramètre restreint »), elle vous explique comment l'autoriser.",
+        text = "Appuyez sur « Activer le service » et activez MindFilter. Sans cela, rien ne peut être masqué. Si Android refuse, l'encadré « Ça ne marche pas ? » de cette carte vous explique quoi faire.",
     ),
     TutorialStep(
         tab = 1, anchor = "tab1", emoji = "🗂️",

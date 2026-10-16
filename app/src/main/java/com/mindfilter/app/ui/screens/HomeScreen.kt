@@ -355,35 +355,50 @@ private fun EngineTester() {
 }
 
 /**
- * Aide pour les applis installées hors Play Store : Android masque ou grise l'option
- * d'accessibilité (« Paramètre restreint ») tant qu'on ne l'a pas autorisée.
+ * Aide pour les applis installées hors Play Store : Android peut bloquer l'activation de
+ * l'accessibilité (« Paramètre restreint ») tant qu'on ne l'a pas autorisée.
  */
 @Composable
 private fun RestrictedHelp() {
     val g = LocalGlass.current
     val ctx = LocalContext.current
+    // Étape normale : activer le service.
     Text(
-        "MindFilter a été installé hors du Play Store : Android demande une autorisation de plus. Faites ces 3 étapes une seule fois :",
-        color = g.textSecondary, fontSize = 13.sp,
+        "Appuyez sur « Activer le service », choisissez MindFilter dans la liste et activez-le.",
+        color = g.text, fontSize = 14.sp,
     )
-    Spacer(Modifier.height(12.dp))
-    HelpStep(
-        1,
-        "Appuyez sur « Accessibilité », puis sur MindFilter. Si un message « Paramètre restreint » apparaît ou si l'option est grisée, c'est normal : fermez-le et revenez ici.",
-    )
-    Spacer(Modifier.height(8.dp))
-    PillButton("Accessibilité", Modifier.fillMaxWidth(), filled = false) { Permissions.openAccessibilitySettings(ctx) }
-    Spacer(Modifier.height(14.dp))
-    HelpStep(
-        2,
-        "Appuyez sur « Infos sur l'appli », puis sur ⋮ en haut à droite et sur « Autoriser les paramètres restreints ». Confirmez avec votre code.",
-    )
-    Spacer(Modifier.height(8.dp))
-    PillButton("Infos sur l'appli", Modifier.fillMaxWidth(), filled = false) { Permissions.openAppDetails(ctx) }
-    Spacer(Modifier.height(14.dp))
-    HelpStep(3, "Revenez dans l'accessibilité et activez MindFilter.")
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(10.dp))
     PillButton("Activer le service", Modifier.fillMaxWidth()) { Permissions.openAccessibilitySettings(ctx) }
+    Spacer(Modifier.height(16.dp))
+
+    // Si Android bloque : encadré séparé, bien visible.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(g.warning.copy(alpha = 0.12f))
+            .padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = g.warning, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Ça ne marche pas ?", color = g.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Si MindFilter est grisé ou si Android affiche « Paramètre restreint », c'est normal : " +
+                "l'appli ne vient pas du Play Store, il faut d'abord l'autoriser. À faire une seule fois :",
+            color = g.textSecondary, fontSize = 13.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        HelpStep(1, "Essayez d'abord d'activer MindFilter avec le bouton ci-dessus, jusqu'au message « Paramètre restreint ». Fermez-le. (Cet essai est nécessaire : sans lui, Android n'affiche pas l'option de l'étape 2.)")
+        Spacer(Modifier.height(10.dp))
+        HelpStep(2, "Appuyez sur « Infos sur l'appli » ci-dessous, puis sur ⋮ en haut à droite et sur « Autoriser les paramètres restreints ». Confirmez avec votre code.")
+        Spacer(Modifier.height(8.dp))
+        PillButton("Infos sur l'appli", Modifier.fillMaxWidth(), filled = false) { Permissions.openAppDetails(ctx) }
+        Spacer(Modifier.height(10.dp))
+        HelpStep(3, "Revenez ici et appuyez de nouveau sur « Activer le service » : cette fois, MindFilter peut être activé.")
+    }
 }
 
 @Composable
