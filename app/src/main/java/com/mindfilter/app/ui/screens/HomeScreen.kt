@@ -63,6 +63,7 @@ import com.mindfilter.app.ui.GlassCard
 import com.mindfilter.app.ui.IconBubble
 import com.mindfilter.app.ui.Permissions
 import com.mindfilter.app.ui.PillButton
+import com.mindfilter.app.ui.tutorialAnchor
 import com.mindfilter.app.ui.ScreenTitle
 import com.mindfilter.app.ui.SectionTitle
 import com.mindfilter.app.ui.theme.LocalGlass
@@ -94,7 +95,7 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
         item { ScreenTitle("MindFilter", "Vos fils d'actualité, sans ce qui vous angoisse.") }
 
         item {
-            GlassCard(padding = 20.dp) {
+            GlassCard(modifier = Modifier.tutorialAnchor("home_status"), padding = 20.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier

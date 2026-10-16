@@ -120,7 +120,7 @@ data class SettingsState(
     val enabledThemes: Set<String> = TaxonomyIndex.defaultEnabledThemeIds,
     val monitoredPackages: Set<String> = DEFAULT_MONITORED,
     val restrictionLevel: Int = RestrictionLevels.DEFAULT,
-    val accent: AccentColor = AccentColor.BLUE,
+    val accent: AccentColor = AccentColor.GREEN,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val appStyle: AppStyle = AppStyle.VERRE,
     val maskStyle: MaskStyle = MaskStyle.AUTO,
@@ -158,14 +158,34 @@ object AppSettings {
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
+    /** Le guide de démarrage doit-il s'afficher ? (première installation, ou demandé dans Réglages) */
+    private val _tutorial = MutableStateFlow(false)
+    val tutorial: StateFlow<Boolean> = _tutorial.asStateFlow()
+
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("initialized", false)) {
+        val freshInstall = !prefs.getBoolean("initialized", false)
+        if (freshInstall) {
             save(SettingsState())
             prefs.edit().putBoolean("initialized", true).apply()
         }
+        // Guide : seulement pour une toute première installation. Les personnes qui avaient
+        // déjà MindFilter avant cette version ne le voient pas (sauf si elles le demandent).
+        if (!prefs.contains("tutorialDone")) {
+            prefs.edit().putBoolean("tutorialDone", !freshInstall).apply()
+        }
+        _tutorial.value = !prefs.getBoolean("tutorialDone", true)
         _state.value = load()
+    }
+
+    fun finishTutorial() {
+        _tutorial.value = false
+        prefs.edit().putBoolean("tutorialDone", true).apply()
+    }
+
+    fun restartTutorial() {
+        _tutorial.value = true
     }
 
     private fun load(): SettingsState {

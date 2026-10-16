@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -113,6 +114,19 @@ private fun MindFilterRoot(resumeTick: Int) {
     // en revenant en arrière, la liste réapparaît exactement là où on l'avait quittée.
     val screenStates = rememberSaveableStateHolder()
 
+    // Guide de démarrage (première installation, ou relancé depuis Réglages).
+    val tutorialOn by AppSettings.tutorial.collectAsStateWithLifecycle()
+    var tutorialStep by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(tutorialOn) {
+        if (tutorialOn) {
+            tutorialStep = 0
+            openCategory = null
+        }
+    }
+    LaunchedEffect(tutorialOn, tutorialStep) {
+        if (tutorialOn) TUTORIAL_STEPS.getOrNull(tutorialStep)?.tab?.let { tab = it }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -139,6 +153,16 @@ private fun MindFilterRoot(resumeTick: Int) {
                 selected = tab,
                 onSelect = { tab = it },
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        if (tutorialOn) {
+            TutorialOverlay(
+                step = tutorialStep,
+                onNext = {
+                    if (tutorialStep >= TUTORIAL_STEPS.lastIndex) AppSettings.finishTutorial()
+                    else tutorialStep++
+                },
+                onSkip = { AppSettings.finishTutorial() },
             )
         }
     }
@@ -175,6 +199,7 @@ private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifi
             Column(
                 Modifier
                     .weight(1f)
+                    .tutorialAnchor("tab$i")
                     .clip(RoundedCornerShape(22.dp))
                     .background(if (isSel) g.accent.copy(alpha = 0.13f) else androidx.compose.ui.graphics.Color.Transparent)
                     .clickable(

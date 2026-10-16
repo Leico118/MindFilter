@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -256,6 +257,14 @@ fun SettingsScreen(resumeTick: Int) {
             }
         }
 
+
+        item {
+            GlassCard {
+                Header(Icons.Filled.Lightbulb, g.accent, "Guide de démarrage", "Revoir les étapes pour bien commencer")
+                Spacer(Modifier.height(12.dp))
+                PillButton("Revoir le guide", Modifier.fillMaxWidth(), filled = false) { AppSettings.restartTutorial() }
+            }
+        }
 
         item { UpdateCard() }
     }
