@@ -138,7 +138,11 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
                 }
                 if (!serviceEnabled) {
                     Spacer(Modifier.height(16.dp))
-                    PillButton("Activer le service", Modifier.fillMaxWidth()) { Permissions.openAccessibilitySettings(ctx) }
+                    if (Permissions.mayBeRestricted(ctx)) {
+                        RestrictedHelp()
+                    } else {
+                        PillButton("Activer le service", Modifier.fillMaxWidth()) { Permissions.openAccessibilitySettings(ctx) }
+                    }
                 }
             }
         }
@@ -347,5 +351,55 @@ private fun EngineTester() {
                 text = ""
             },
         )
+    }
+}
+
+/**
+ * Aide pour les applis installées hors Play Store : Android masque ou grise l'option
+ * d'accessibilité (« Paramètre restreint ») tant qu'on ne l'a pas autorisée.
+ */
+@Composable
+private fun RestrictedHelp() {
+    val g = LocalGlass.current
+    val ctx = LocalContext.current
+    Text(
+        "MindFilter a été installé hors du Play Store : Android demande une autorisation de plus. Faites ces 3 étapes une seule fois :",
+        color = g.textSecondary, fontSize = 13.sp,
+    )
+    Spacer(Modifier.height(12.dp))
+    HelpStep(
+        1,
+        "Appuyez sur « Accessibilité », puis sur MindFilter. Si un message « Paramètre restreint » apparaît ou si l'option est grisée, c'est normal : fermez-le et revenez ici.",
+    )
+    Spacer(Modifier.height(8.dp))
+    PillButton("Accessibilité", Modifier.fillMaxWidth(), filled = false) { Permissions.openAccessibilitySettings(ctx) }
+    Spacer(Modifier.height(14.dp))
+    HelpStep(
+        2,
+        "Appuyez sur « Infos sur l'appli », puis sur ⋮ en haut à droite et sur « Autoriser les paramètres restreints ». Confirmez avec votre code.",
+    )
+    Spacer(Modifier.height(8.dp))
+    PillButton("Infos sur l'appli", Modifier.fillMaxWidth(), filled = false) { Permissions.openAppDetails(ctx) }
+    Spacer(Modifier.height(14.dp))
+    HelpStep(3, "Revenez dans l'accessibilité et activez MindFilter.")
+    Spacer(Modifier.height(8.dp))
+    PillButton("Activer le service", Modifier.fillMaxWidth()) { Permissions.openAccessibilitySettings(ctx) }
+}
+
+@Composable
+private fun HelpStep(n: Int, text: String) {
+    val g = LocalGlass.current
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(g.accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$n", color = g.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = g.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
     }
 }
