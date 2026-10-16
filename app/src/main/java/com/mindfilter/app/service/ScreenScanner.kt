@@ -11,6 +11,8 @@ class SNode(
     val scrollable: Boolean,
     val ownText: String,
     val className: String,
+    /** Référence vers l'élément réel, pour suivre sa position en direct (aucun texte relu). */
+    val info: AccessibilityNodeInfo? = null,
 ) {
     val children = ArrayList<SNode>(4)
     var fullText: String = ""
@@ -24,7 +26,13 @@ class SNode(
  * [rect] : zone complète estimée de la publication (peut dépasser du bord de l'écran) ;
  * [clip] : zone visible de la liste qui la contient. Le masque affiché = rect ∩ clip.
  */
-data class MaskTarget(val key: String, val rect: Rect, val clip: Rect, val label: String)
+data class MaskTarget(
+    val key: String,
+    val rect: Rect,
+    val clip: Rect,
+    val label: String,
+    val node: AccessibilityNodeInfo? = null,
+)
 
 /**
  * Parcourt l'arbre d'accessibilité de l'application au premier plan et décide
@@ -69,7 +77,7 @@ object ScreenScanner {
             desc.contains(text) -> desc
             else -> "$text $desc"
         }
-        val s = SNode(r, node.isScrollable, own, node.className?.toString().orEmpty())
+        val s = SNode(r, node.isScrollable, own, node.className?.toString().orEmpty(), node)
         s.offscreen = !visible
         for (i in 0 until node.childCount) {
             val child = try {
@@ -161,20 +169,30 @@ object ScreenScanner {
             var key = n.className + "|" + n.fullText.take(160).hashCode()
             var i = 1
             while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
-            out.add(MaskTarget(key, Rect(n.bounds), Rect(clip), label))
+            out.add(MaskTarget(key, Rect(n.bounds), Rect(clip), label, n.info))
             return
         }
         if (visible.height() < 24 || visible.width() < 48) return
         // Android ne fournit que la partie visible d'une publication coupée par le bord de
         // la liste. On prolonge le masque au-delà de ce bord : quand la publication entre
         // dans l'écran en défilant, elle est déjà entièrement couverte.
-        val full = Rect(n.bounds)
-        val extra = clip.height()
-        if (full.bottom >= clip.bottom - 3) full.bottom += extra
-        if (full.top <= clip.top + 3) full.top -= extra
+        val full = maskRect(n.bounds, clip)
         var key = n.className + "|" + n.fullText.take(160).hashCode()
         var i = 1
         while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
-        out.add(MaskTarget(key, full, Rect(clip), label))
+        out.add(MaskTarget(key, full, Rect(clip), label, n.info))
+    }
+
+    /**
+     * Zone du masque à partir de la position d'un élément : s'il touche un bord de la liste
+     * (publication coupée), on prolonge au-delà du bord pour couvrir la partie encore cachée.
+     */
+    fun maskRect(bounds: Rect, clip: Rect): Rect {
+        val full = Rect(bounds)
+        if (!Rect.intersects(bounds, clip)) return full
+        val extra = clip.height()
+        if (full.bottom >= clip.bottom - 3) full.bottom += extra
+        if (full.top <= clip.top + 3) full.top -= extra
+        return full
     }
 }

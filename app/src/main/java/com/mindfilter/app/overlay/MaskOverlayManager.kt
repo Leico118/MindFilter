@@ -27,7 +27,10 @@ class MaskOverlayManager(
     private val context: Context,
     private val relay: DragRelay,
 ) {
-    private class Entry(val view: MaskView, val rect: Rect, val clip: Rect)
+    private class Entry(val view: MaskView, val rect: Rect, val clip: Rect) {
+        /** Moment (uptime) de la dernière position lue en direct par le suivi. */
+        var trackedAt = 0L
+    }
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val entries = LinkedHashMap<String, Entry>()
@@ -42,7 +45,7 @@ class MaskOverlayManager(
     val count: Int get() = entries.size
 
     /** Affiche exactement [targets] ; renvoie le nombre de masques nouvellement créés. */
-    fun render(targets: List<MaskTarget>, darkStyle: Boolean): Int {
+    fun render(targets: List<MaskTarget>, darkStyle: Boolean, snapshotAt: Long = 0L): Int {
         dark = darkStyle
         var created = 0
         val wanted = HashSet<String>(targets.size)
@@ -53,7 +56,13 @@ class MaskOverlayManager(
                 if (add(t)) created++
             } else {
                 e.view.setDark(darkStyle)
-                if (e.rect != t.rect || e.clip != t.clip) {
+                if (e.trackedAt > snapshotAt) {
+                    // Le suivi en direct a une position plus récente que cette analyse : on la garde.
+                    if (e.clip != t.clip) {
+                        e.clip.set(t.clip)
+                        place(e)
+                    }
+                } else if (e.rect != t.rect || e.clip != t.clip) {
                     e.rect.set(t.rect)
                     e.clip.set(t.clip)
                     place(e)
@@ -69,10 +78,26 @@ class MaskOverlayManager(
     /** Décalage immédiat pendant un défilement, avant la prochaine analyse complète. */
     fun offsetAll(dx: Int, dy: Int) {
         if (dx == 0 && dy == 0) return
+        val recent = android.os.SystemClock.uptimeMillis() - 150
         for (e in entries.values) {
+            // Masques suivis en direct : leur position est déjà exacte, on n'y touche pas.
+            if (e.trackedAt > recent) continue
             e.rect.offset(dx, dy)
             place(e)
         }
+    }
+
+    /** Positions lues en direct par le suivi ; [lost] = masques qui ne peuvent plus être suivis. */
+    fun applyTracked(updates: List<Pair<String, Rect>>, lost: List<String>, at: Long) {
+        for ((key, rect) in updates) {
+            val e = entries[key] ?: continue
+            e.trackedAt = at
+            if (e.rect != rect) {
+                e.rect.set(rect)
+                place(e)
+            }
+        }
+        for (key in lost) entries[key]?.trackedAt = 0L
     }
 
     /** Conservé pour compatibilité : les masques laissent toujours passer les gestes. */

@@ -42,6 +42,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
     private lateinit var worker: HandlerThread
     private lateinit var workerHandler: Handler
     private lateinit var overlay: MaskOverlayManager
+    private lateinit var tracker: MaskTracker
+    @Volatile private var lastMoveAt = 0L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @Volatile private var settings: SettingsState = AppSettings.state.value
@@ -58,6 +60,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
         worker = HandlerThread("mindfilter-scan").also { it.start() }
         workerHandler = Handler(worker.looper)
         overlay = MaskOverlayManager(this, dragRelay)
+        tracker = MaskTracker(
+            frameMs = frameIntervalMs(),
+            screenHeight = { resources.displayMetrics.heightPixels },
+        ) { updates, lost, at ->
+            main.post { if (::overlay.isInitialized) overlay.applyTracked(updates, lost, at) }
+        }
 
         // Après un redémarrage du téléphone, Android relance automatiquement ce service.
         // Si l'« activation automatique » est désactivée, la protection reste en pause.
@@ -122,6 +130,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
                         if (overlay.count > 0) overlay.offsetAll(-dx, 0)
                     }
                 }
+                lastMoveAt = android.os.SystemClock.uptimeMillis()
+                if (overlay.count > 0) tracker.poke()
                 requestScan(0)
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> onClickEvent(event)
@@ -129,7 +139,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 onWindowChanged()
                 requestScan(0)
             }
-            else -> requestScan(16)
+            else -> {
+                if (overlay.count > 0) tracker.poke()
+                requestScan(16)
+            }
         }
     }
 
@@ -171,6 +184,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
             return
         }
         // Position du défilement au moment où l'écran est lu.
+        val snapAt = android.os.SystemClock.uptimeMillis()
         val snapY = scrollAccumY.get()
         val snapX = scrollAccumX.get()
         val screen = Rect()
@@ -208,7 +222,17 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val placed = if (lateX == 0 && lateY == 0) targets else targets.map { t ->
                     t.copy(rect = Rect(t.rect).apply { offset(-lateX, -lateY) })
                 }
-                val created = overlay.render(placed, dark)
+                val created = overlay.render(placed, dark, snapAt)
+                // Les publications masquées sont ensuite suivies en direct pendant le défilement.
+                tracker.setTargets(
+                    placed.mapNotNull { t ->
+                        val n = t.node ?: return@mapNotNull null
+                        val start = Rect().also { n.getBoundsInScreen(it) }
+                        MaskTracker.Tracked(t.key, n, t.clip, start)
+                    },
+                )
+                // La page est en train de défiler : le suivi démarre tout de suite.
+                if (android.os.SystemClock.uptimeMillis() - lastMoveAt < 300) tracker.poke()
                 if (created > 0) ServiceStatus.maskedThisSession.value += created
                 if (overlay.count > 0) startExitWatch()
             }
@@ -270,6 +294,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
     }
 
     private fun clearMasks() {
+        if (::tracker.isInitialized) tracker.setTargets(emptyList())
         main.post {
             if (::overlay.isInitialized) overlay.clear()
             ServiceStatus.currentlyMasked.value = 0
@@ -325,6 +350,19 @@ class MindFilterAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Durée d'une image de l'écran (6 à 16 ms selon la fréquence : 60, 90, 120, 165 Hz…). */
+    @Suppress("DEPRECATION")
+    private fun frameIntervalMs(): Long {
+        val hz = try {
+            val wm = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+            wm.defaultDisplay.refreshRate
+        } catch (e: Exception) {
+            60f
+        }
+        // Au plus 120 lectures par seconde : au-delà, on charge l'appli sans gain visible.
+        return (1000f / hz.coerceIn(30f, 120f)).toLong().coerceIn(8L, 33L)
+    }
+
     private companion object {
         const val MIN_INTERVAL_MS = 33L
     }
@@ -339,6 +377,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         scope.cancel()
         if (::overlay.isInitialized) overlay.clear()
         if (::worker.isInitialized) worker.quitSafely()
+        if (::tracker.isInitialized) tracker.quit()
         super.onDestroy()
     }
 }
