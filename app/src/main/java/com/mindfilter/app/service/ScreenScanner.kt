@@ -14,6 +14,8 @@ class SNode(
 ) {
     val children = ArrayList<SNode>(4)
     var fullText: String = ""
+    /** Nœud déjà chargé par l'appli mais pas encore affiché (au-dessus/au-dessous de l'écran). */
+    var offscreen: Boolean = false
     /** Ce nœud ou un de ses descendants est une liste qui défile. */
     var hasScrollable: Boolean = scrollable
 }
@@ -29,23 +31,36 @@ data class MaskTarget(val key: String, val rect: Rect, val clip: Rect, val label
  * quelles zones masquer. Les champs de saisie et les mots de passe sont ignorés.
  */
 object ScreenScanner {
-    private const val MAX_NODES = 2500
+    private const val MAX_NODES = 3500
+    /** Distance (en hauteurs/largeurs d'écran) jusqu'à laquelle on lit le contenu préchargé. */
+    private const val AHEAD_SCREENS = 1.5f
     private const val MAX_DEPTH = 60
     private const val MAX_TEXT = 1500
 
-    fun snapshot(root: AccessibilityNodeInfo): SNode? {
+    /**
+     * Copie l'arbre de l'écran. Les éléments que l'appli a DÉJÀ chargés mais qui ne sont pas
+     * encore affichés (juste au-dessus ou au-dessous de l'écran) sont aussi lus, jusqu'à
+     * [AHEAD_SCREENS] écrans de distance : leurs masques sont préparés à l'avance, invisibles,
+     * et apparaissent au moment exact où la publication entre dans l'écran.
+     */
+    fun snapshot(root: AccessibilityNodeInfo, screen: Rect): SNode? {
         val counter = intArrayOf(0)
-        return build(root, 0, counter)
+        val dx = (screen.width() * AHEAD_SCREENS).toInt()
+        val dy = (screen.height() * AHEAD_SCREENS).toInt()
+        val ahead = Rect(screen.left - dx, screen.top - dy, screen.right + dx, screen.bottom + dy)
+        return build(root, 0, counter, ahead)
     }
 
-    private fun build(node: AccessibilityNodeInfo, depth: Int, counter: IntArray): SNode? {
+    private fun build(node: AccessibilityNodeInfo, depth: Int, counter: IntArray, ahead: Rect): SNode? {
         if (counter[0] >= MAX_NODES || depth > MAX_DEPTH) return null
         counter[0]++
-        if (!node.isVisibleToUser) return null
         if (node.isPassword || node.isEditable) return null // confidentialité : jamais lus
 
         val r = Rect()
         node.getBoundsInScreen(r)
+        val visible = node.isVisibleToUser
+        // Hors écran : gardé seulement si Android donne sa vraie position et qu'il est proche.
+        if (!visible && (r.isEmpty || !Rect.intersects(r, ahead))) return null
         val text = node.text?.toString()?.trim().orEmpty()
         val desc = node.contentDescription?.toString()?.trim().orEmpty()
         val own = when {
@@ -55,6 +70,7 @@ object ScreenScanner {
             else -> "$text $desc"
         }
         val s = SNode(r, node.isScrollable, own, node.className?.toString().orEmpty())
+        s.offscreen = !visible
         for (i in 0 until node.childCount) {
             val child = try {
                 // Android 13+ : on demande à Android d'envoyer d'un coup les nœuds suivants
@@ -67,7 +83,7 @@ object ScreenScanner {
             } catch (e: Exception) {
                 null
             } ?: continue
-            build(child, depth + 1, counter)?.let {
+            build(child, depth + 1, counter, ahead)?.let {
                 s.children.add(it)
                 if (it.hasScrollable) s.hasScrollable = true
             }
@@ -110,7 +126,7 @@ object ScreenScanner {
         out: MutableList<MaskTarget>,
         usedKeys: MutableSet<String>,
     ): Boolean {
-        if (n.fullText.isBlank() || out.size >= 40) return false
+        if (n.fullText.isBlank() || out.size >= 60) return false
         val childClip = Rect(clip)
         if (n.scrollable && !childClip.intersect(n.bounds)) return false
 
@@ -138,7 +154,16 @@ object ScreenScanner {
 
     private fun add(n: SNode, clip: Rect, label: String, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {
         val visible = Rect(n.bounds)
-        if (!visible.intersect(clip)) return
+        if (!visible.intersect(clip)) {
+            // Publication préchargée hors de l'écran : masque préparé (invisible pour l'instant),
+            // il suivra le défilement et sera déjà en place quand elle apparaîtra.
+            if (!n.offscreen || n.bounds.height() < 24 || n.bounds.width() < 48) return
+            var key = n.className + "|" + n.fullText.take(160).hashCode()
+            var i = 1
+            while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
+            out.add(MaskTarget(key, Rect(n.bounds), Rect(clip), label))
+            return
+        }
         if (visible.height() < 24 || visible.width() < 48) return
         // Android ne fournit que la partie visible d'une publication coupée par le bord de
         // la liste. On prolonge le masque au-delà de ce bord : quand la publication entre

@@ -180,7 +180,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
             screen.set(0, 0, dm.widthPixels, dm.heightPixels)
         }
         val snap = try {
-            ScreenScanner.snapshot(root)
+            ScreenScanner.snapshot(root, screen)
         } catch (e: Exception) {
             null
         } ?: return
