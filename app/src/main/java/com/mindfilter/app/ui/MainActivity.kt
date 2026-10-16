@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by AppSettings.state.collectAsStateWithLifecycle()
             val tick by resumeTick.collectAsStateWithLifecycle()
-            MindFilterTheme(settings.themeMode, settings.accent) {
+            MindFilterTheme(settings.themeMode, settings.accent, settings.appStyle) {
                 GlassBackground {
                     MindFilterRoot(tick)
                 }
@@ -156,7 +156,8 @@ private fun GlassTabBar(selected: Int, onSelect: (Int) -> Unit, modifier: Modifi
             .clip(shape)
             .background(
                 Brush.verticalGradient(
-                    if (g.dark) listOf(
+                    if (g.tabTop != null && g.tabBottom != null) listOf(g.tabTop, g.tabBottom)
+                    else if (g.dark) listOf(
                         androidx.compose.ui.graphics.Color(0xF22A2B33),
                         androidx.compose.ui.graphics.Color(0xF21E1F25),
                     ) else listOf(

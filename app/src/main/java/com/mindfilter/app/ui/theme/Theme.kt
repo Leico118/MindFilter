@@ -12,7 +12,12 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import android.app.Activity
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.mindfilter.app.data.AccentColor
+import com.mindfilter.app.data.AppStyle
 import com.mindfilter.app.data.ThemeMode
 
 /** Palette « verre liquide » : surfaces translucides teintées par la couleur choisie. */
@@ -34,6 +39,11 @@ data class GlassColors(
     val warning: Color,
     val danger: Color,
     val chip: Color,
+    /** Fond de la barre d'onglets (null = rendu verre par défaut). */
+    val tabTop: Color? = null,
+    val tabBottom: Color? = null,
+    /** Titres à empattements (thème Papier). */
+    val serifTitles: Boolean = false,
 )
 
 private val LightGlass = GlassColors(
@@ -77,25 +87,39 @@ private val DarkGlass = GlassColors(
 val LocalGlass = staticCompositionLocalOf { LightGlass }
 
 @Composable
-fun MindFilterTheme(mode: ThemeMode, accentColor: AccentColor = AccentColor.BLUE, content: @Composable () -> Unit) {
-    val dark = when (mode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
+fun MindFilterTheme(
+    mode: ThemeMode,
+    accentColor: AccentColor = AccentColor.BLUE,
+    style: AppStyle = AppStyle.VERRE,
+    content: @Composable () -> Unit,
+) {
+    val systemDark = isSystemInDarkTheme()
+    val glass = when (style) {
+        AppStyle.VERRE -> verreColors(
+            when (mode) {
+                ThemeMode.SYSTEM -> systemDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            },
+            accentColor,
+        )
+        AppStyle.NOIR -> noirColors(accentColor)
+        AppStyle.PAPIER -> papierColors(accentColor)
+        AppStyle.CONTRASTE -> ContrasteColors
     }
-    // Même rendu « verre » partout ; seule la teinte d'accent (et les halos du fond) change.
-    val accent = Color(if (dark) accentColor.dark else accentColor.light)
-    val base = if (dark) DarkGlass else LightGlass
-    // Le fond prend lui aussi la teinte : léger voile en haut, plus marqué en bas,
-    // pour éviter un bas d'écran presque noir.
-    val glass = base.copy(
-        bgTop = lerp(base.bgTop, accent, if (dark) 0.10f else 0.06f),
-        bgBottom = lerp(base.bgBottom, accent, if (dark) 0.24f else 0.16f),
-        accent = accent,
-        onAccent = Color(if (dark) accentColor.onDark else accentColor.onLight),
-        blobA = accent.copy(alpha = if (dark) 0.25f else 0.33f),
-        blobB = accent.copy(alpha = if (dark) 0.14f else 0.20f),
-    )
+    val dark = glass.dark
+
+    // Icônes de la barre d'état (heure, batterie) lisibles sur le fond du thème.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
     val scheme = if (dark) {
         darkColorScheme(
             primary = glass.accent,
@@ -139,3 +163,82 @@ private fun adaptiveDensity(): Density {
     val font = base.fontScale.coerceAtMost(1.10f)
     return Density(density = base.density * factor, fontScale = font)
 }
+
+/** Verre : le rendu d'origine de MindFilter, teinté par la couleur choisie. */
+private fun verreColors(dark: Boolean, accentColor: AccentColor): GlassColors {
+    val accent = Color(if (dark) accentColor.dark else accentColor.light)
+    val base = if (dark) DarkGlass else LightGlass
+    // Le fond prend lui aussi la teinte : léger voile en haut, plus marqué en bas.
+    return base.copy(
+        bgTop = lerp(base.bgTop, accent, if (dark) 0.10f else 0.06f),
+        bgBottom = lerp(base.bgBottom, accent, if (dark) 0.24f else 0.16f),
+        accent = accent,
+        onAccent = Color(if (dark) accentColor.onDark else accentColor.onLight),
+        blobA = accent.copy(alpha = if (dark) 0.25f else 0.33f),
+        blobB = accent.copy(alpha = if (dark) 0.14f else 0.20f),
+    )
+}
+
+/** Noir : sobre et professionnel, surfaces pleines, pas de halos. */
+private fun noirColors(accentColor: AccentColor) = DarkGlass.copy(
+    bgTop = Color(0xFF0A0A0C),
+    bgBottom = Color(0xFF0A0A0C),
+    blobA = Color.Transparent,
+    blobB = Color.Transparent,
+    glassTop = Color(0xFF141418),
+    glassBottom = Color(0xFF141418),
+    glassBorderTop = Color(0x12FFFFFF),
+    glassBorderBottom = Color(0x12FFFFFF),
+    text = Color(0xFFECEBE8),
+    textSecondary = Color(0xFF8E8D94),
+    accent = Color(accentColor.dark),
+    onAccent = Color(accentColor.onDark),
+    chip = Color(0xFF1C1C22),
+    tabTop = Color(0xF7141418),
+    tabBottom = Color(0xF7141418),
+)
+
+/** Papier : clair et chaleureux, titres à empattements, comme un journal. */
+private fun papierColors(accentColor: AccentColor) = LightGlass.copy(
+    bgTop = Color(0xFFF3EFE6),
+    bgBottom = Color(0xFFF3EFE6),
+    blobA = Color.Transparent,
+    blobB = Color.Transparent,
+    glassTop = Color(0xFFFFFDF8),
+    glassBottom = Color(0xFFFFFDF8),
+    glassBorderTop = Color(0x1F2D2314),
+    glassBorderBottom = Color(0x1F2D2314),
+    text = Color(0xFF1F1C17),
+    textSecondary = Color(0xFF5C564C),
+    accent = Color(accentColor.light),
+    onAccent = Color(accentColor.onLight),
+    positive = Color(0xFF047857),
+    warning = Color(0xFFA16207),
+    danger = Color(0xFFB91C1C),
+    chip = Color(0xFFEBE6DA),
+    tabTop = Color(0xFAFFFDF8),
+    tabBottom = Color(0xFAF7F3EA),
+    serifTitles = true,
+)
+
+/** Contraste : lisibilité maximale, noir, blanc et jaune (couleur imposée). */
+private val ContrasteColors = DarkGlass.copy(
+    bgTop = Color(0xFF000000),
+    bgBottom = Color(0xFF000000),
+    blobA = Color.Transparent,
+    blobB = Color.Transparent,
+    glassTop = Color(0xFF0C0C0C),
+    glassBottom = Color(0xFF0C0C0C),
+    glassBorderTop = Color(0x66FFFFFF),
+    glassBorderBottom = Color(0x66FFFFFF),
+    text = Color(0xFFFFFFFF),
+    textSecondary = Color(0xFFEDEDED),
+    accent = Color(0xFFFFD60A),
+    onAccent = Color(0xFF000000),
+    positive = Color(0xFF4CD964),
+    warning = Color(0xFFFFD60A),
+    danger = Color(0xFFFF6B6B),
+    chip = Color(0xFF1D1D1D),
+    tabTop = Color(0xFF0C0C0C),
+    tabBottom = Color(0xFF0C0C0C),
+)

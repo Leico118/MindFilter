@@ -123,7 +123,14 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 fun ScreenTitle(title: String, subtitle: String? = null) {
     val g = LocalGlass.current
     Column(Modifier.padding(start = 6.dp, top = 8.dp, bottom = 6.dp)) {
-        Text(title, color = g.text, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+        Text(
+            title,
+            color = g.text,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = if (g.serifTitles) 0.sp else (-0.5).sp,
+            fontFamily = if (g.serifTitles) androidx.compose.ui.text.font.FontFamily.Serif else null,
+        )
         if (subtitle != null) {
             Text(subtitle, color = g.textSecondary, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp))
         }

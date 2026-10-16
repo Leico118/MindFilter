@@ -58,6 +58,11 @@ import com.mindfilter.app.ui.AccentPicker
 import com.mindfilter.app.ui.RestrictionGauge
 import com.mindfilter.app.data.ServiceStatus
 import com.mindfilter.app.data.ThemeMode
+import com.mindfilter.app.data.AppStyle
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.graphics.Brush
 import com.mindfilter.app.data.TouchMode
 import com.mindfilter.app.ui.GlassCard
 import com.mindfilter.app.ui.IconBubble
@@ -133,9 +138,15 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
-                Header(Icons.Filled.Palette, Color(0xFFAF52DE), "Mode clair et sombre", "Apparence de MindFilter")
+                Header(Icons.Filled.Palette, Color(0xFFAF52DE), "Thème", "${s.appStyle.label} · ${s.appStyle.description}")
                 Spacer(Modifier.height(12.dp))
-                Segmented(ThemeMode.entries.toList(), s.themeMode, { it.label }) { v -> AppSettings.update { it.copy(themeMode = v) } }
+                StylePicker(s.appStyle) { v -> AppSettings.update { it.copy(appStyle = v) } }
+                if (s.appStyle == AppStyle.VERRE) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("Mode clair et sombre", color = g.textSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Segmented(ThemeMode.entries.toList(), s.themeMode, { it.label }) { v -> AppSettings.update { it.copy(themeMode = v) } }
+                }
             }
         }
 
@@ -236,8 +247,15 @@ fun SettingsScreen(resumeTick: Int) {
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                AccentPicker(s.accent, { a -> AppSettings.update { it.copy(accent = a) } }, enabled = unlocked)
-                if (!unlocked) {
+                val accentLocked = s.appStyle == AppStyle.CONTRASTE
+                AccentPicker(s.accent, { a -> AppSettings.update { it.copy(accent = a) } }, enabled = unlocked && !accentLocked)
+                if (accentLocked) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Le thème Contraste utilise toujours le jaune pour rester le plus lisible possible. Votre couleur revient si vous changez de thème.",
+                        color = g.textSecondary, fontSize = 12.sp,
+                    )
+                } else if (!unlocked) {
                     Spacer(Modifier.height(10.dp))
                     Text(
                         "Appuyez sur « Modifier » pour changer de couleur. Le choix se reverrouille quand vous quittez les réglages.",
@@ -248,6 +266,68 @@ fun SettingsScreen(resumeTick: Int) {
         }
 
         item { UpdateCard() }
+    }
+}
+
+/** Choix du thème : quatre vignettes avec un aperçu des couleurs, comme dans Radar. */
+@Composable
+private fun StylePicker(selected: AppStyle, onSelect: (AppStyle) -> Unit) {
+    val g = LocalGlass.current
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        AppStyle.entries.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { st ->
+                    val isSel = st == selected
+                    val shape = RoundedCornerShape(18.dp)
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clip(shape)
+                            .background(g.chip)
+                            .border(2.dp, if (isSel) g.accent else Color.Transparent, shape)
+                            .clickable { onSelect(st) }
+                            .padding(10.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.linearGradient(listOf(Color(st.previewTop), Color(st.previewBottom))),
+                                )
+                                .border(1.dp, g.glassBorderTop, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.CenterEnd,
+                        ) {
+                            if (isSel) {
+                                Icon(
+                                    Icons.Filled.CheckCircle,
+                                    contentDescription = "Thème choisi",
+                                    tint = g.accent,
+                                    modifier = Modifier.padding(end = 8.dp).size(20.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            st.label,
+                            color = g.text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        Text(
+                            st.description,
+                            color = g.textSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            minLines = 2,
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

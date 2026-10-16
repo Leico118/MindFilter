@@ -87,6 +87,14 @@ enum class AccentColor(val label: String, val light: Long, val dark: Long, val o
 
 enum class ThemeMode(val label: String) { SYSTEM("Automatique"), LIGHT("Clair"), DARK("Sombre") }
 
+/** Thèmes de l'interface, identiques à ceux de Radar. */
+enum class AppStyle(val label: String, val description: String, val previewTop: Long, val previewBottom: Long) {
+    VERRE("Verre", "Bulles translucides sur fond teinté", 0xFF4A3A1C, 0xFF2A241C),
+    NOIR("Noir", "Sobre et professionnel", 0xFF0A0A0C, 0xFF1C1C22),
+    PAPIER("Papier", "Clair, comme une page de journal", 0xFFF3EFE6, 0xFFFFFDF8),
+    CONTRASTE("Contraste", "Lisibilité maximale : noir, blanc et jaune", 0xFF000000, 0xFFFFD60A),
+}
+
 enum class MaskStyle(val label: String) { AUTO("Automatique"), LIGHT("Clair"), DARK("Sombre") }
 
 enum class TouchMode(val label: String, val description: String) {
@@ -115,6 +123,7 @@ data class SettingsState(
     val restrictionLevel: Int = RestrictionLevels.DEFAULT,
     val accent: AccentColor = AccentColor.BLUE,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val appStyle: AppStyle = AppStyle.VERRE,
     val maskStyle: MaskStyle = MaskStyle.AUTO,
     val touchMode: TouchMode = TouchMode.PROTECT,
     val autoActivation: Boolean = true,
@@ -179,6 +188,7 @@ object AppSettings {
             },
             accent = enumOr(prefs.getString("accent", null), d.accent),
             themeMode = enumOr(prefs.getString("themeMode", null), d.themeMode),
+            appStyle = enumOr(prefs.getString("appStyle", null), d.appStyle),
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
@@ -198,6 +208,7 @@ object AppSettings {
             .putInt("filterLevel", s.restrictionLevel)
             .putString("accent", s.accent.name)
             .putString("themeMode", s.themeMode.name)
+            .putString("appStyle", s.appStyle.name)
             .putString("maskStyle", s.maskStyle.name)
             .putString("touchMode", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
