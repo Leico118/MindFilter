@@ -138,7 +138,12 @@ object ScreenScanner {
         val childClip = Rect(clip)
         if (n.scrollable && !childClip.intersect(n.bounds)) return false
 
-        val tooBig = n.scrollable || n.bounds.height() > maxHeight || n.bounds.width() <= 0
+        // Un élément qui touche à la fois le haut ET le bas de la liste visible et en occupe
+        // l'essentiel n'est pas une publication mais un conteneur de plusieurs publications
+        // (cas de la recherche Facebook sur certains téléphones) : on regarde à l'intérieur.
+        val fillsList = n.bounds.top <= clip.top + 4 && n.bounds.bottom >= clip.bottom - 4 &&
+            n.bounds.height() >= clip.height() * 6 / 10 && n.children.isNotEmpty()
+        val tooBig = n.scrollable || fillsList || n.bounds.height() > maxHeight || n.bounds.width() <= 0
         if (!tooBig) {
             val match = classifier.classify(n.fullText) ?: return false
             add(n, clip, match.label, out, usedKeys)
@@ -146,7 +151,9 @@ object ScreenScanner {
         }
         var any = false
         for (c in n.children) if (visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
-        if (any || n.hasScrollable) return any
+        // Pas de regroupement pour un conteneur de plusieurs publications : on ne masque pas
+        // tout un écran parce que des mots de publications différentes se combinent.
+        if (any || n.hasScrollable || fillsList) return any
         // Grand bloc sans liste (ex. article ouvert) : le sujet n'apparaît qu'en combinant
         // plusieurs paragraphes. On masque alors ces paragraphes.
         val match = classifier.classify(n.fullText) ?: return false

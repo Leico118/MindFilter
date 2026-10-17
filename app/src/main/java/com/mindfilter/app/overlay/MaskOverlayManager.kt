@@ -48,31 +48,50 @@ class MaskOverlayManager(
     fun render(targets: List<MaskTarget>, darkStyle: Boolean, snapshotAt: Long = 0L): Int {
         dark = darkStyle
         var created = 0
-        val wanted = HashSet<String>(targets.size)
+        val wanted = targets.mapTo(HashSet(targets.size)) { it.key }
+        // Masques qui ne correspondent plus à aucune clé : ils peuvent être réutilisés par une
+        // publication au même endroit dont la clé a changé (texte qui s'allonge en entrant dans
+        // l'écran…). Ainsi le masque reste en place au lieu de disparaître puis réapparaître.
+        val spare = entries.keys.filter { it !in wanted }.toMutableList()
         for (t in targets) {
-            wanted.add(t.key)
-            val e = entries[t.key]
+            var e = entries[t.key]
             if (e == null) {
-                if (add(t)) created++
-            } else {
-                e.view.setDark(darkStyle)
-                if (e.trackedAt > snapshotAt) {
-                    // Le suivi en direct a une position plus récente que cette analyse : on la garde.
-                    if (e.clip != t.clip) {
-                        e.clip.set(t.clip)
-                        place(e)
-                    }
-                } else if (e.rect != t.rect || e.clip != t.clip) {
-                    e.rect.set(t.rect)
+                val reuse = spare.firstOrNull { k -> entries[k]?.let { overlaps(it.rect, t.rect) } == true }
+                if (reuse != null) {
+                    spare.remove(reuse)
+                    e = entries.remove(reuse)!!
+                    entries[t.key] = e
+                    e.trackedAt = 0L
+                } else {
+                    if (add(t)) created++
+                    continue
+                }
+            }
+            e.view.setDark(darkStyle)
+            if (e.trackedAt > snapshotAt) {
+                // Le suivi en direct a une position plus récente que cette analyse : on la garde.
+                if (e.clip != t.clip) {
                     e.clip.set(t.clip)
                     place(e)
                 }
+            } else if (e.rect != t.rect || e.clip != t.clip) {
+                e.rect.set(t.rect)
+                e.clip.set(t.clip)
+                place(e)
             }
         }
-        val stale = entries.keys.filter { it !in wanted }
-        stale.forEach { remove(it) }
+        spare.forEach { remove(it) }
         if (entries.isEmpty()) detach()
         return created
+    }
+
+    /** Deux zones se recouvrent-elles à plus de moitié (par rapport à la plus petite) ? */
+    private fun overlaps(a: Rect, b: Rect): Boolean {
+        val i = Rect(a)
+        if (!i.intersect(b)) return false
+        val inter = i.width().toLong() * i.height()
+        val smaller = minOf(a.width().toLong() * a.height(), b.width().toLong() * b.height())
+        return smaller > 0 && inter * 2 >= smaller
     }
 
     /** Décalage immédiat pendant un défilement, avant la prochaine analyse complète. */
@@ -180,8 +199,8 @@ class MaskOverlayManager(
             entries[t.key] = e
             place(e)
             // Apparition très courte : le contenu n'a pas le temps d'être lu.
-            view.alpha = 0.55f
-            view.animate().alpha(1f).setDuration(90).setInterpolator(DecelerateInterpolator()).start()
+            // Opaque immédiatement : aucune image où le contenu dessous serait visible.
+            view.alpha = 1f
             true
         } catch (ex: Exception) {
             false
