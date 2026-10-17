@@ -1,5 +1,7 @@
 package com.mindfilter.app.ui.screens
 
+import com.mindfilter.app.ui.bottomBarSpace
+import com.mindfilter.app.ui.navBarSpace
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
@@ -66,7 +68,7 @@ fun FiltersScreen() {
 
     LazyColumn(
         modifier = Modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomBarSpace()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { ScreenTitle("Filtres personnalisés", "Ce que vous voulez masquer, et ce que vous voulez toujours voir.") }

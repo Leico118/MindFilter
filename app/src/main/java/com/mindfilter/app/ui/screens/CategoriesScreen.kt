@@ -1,5 +1,7 @@
 package com.mindfilter.app.ui.screens
 
+import com.mindfilter.app.ui.bottomBarSpace
+import com.mindfilter.app.ui.navBarSpace
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -72,7 +74,7 @@ fun CategoriesScreen(onOpen: (String) -> Unit) {
     val s by AppSettings.state.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomBarSpace()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { ScreenTitle("Catégories", "Cochez les sujets que vous ne voulez plus voir.") }
@@ -120,7 +122,7 @@ fun CategoryDetailScreen(categoryId: String, onBack: () -> Unit) {
 
     LazyColumn(
         modifier = Modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 48.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBarSpace()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {

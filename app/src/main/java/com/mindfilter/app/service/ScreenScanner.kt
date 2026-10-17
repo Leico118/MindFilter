@@ -146,6 +146,24 @@ object ScreenScanner {
         val tooBig = n.scrollable || fillsList || n.bounds.height() > maxHeight || n.bounds.width() <= 0
         if (!tooBig) {
             val match = classifier.classify(n.fullText) ?: return false
+            // Grand bloc qui contient PLUSIEURS éléments concernés chacun de son côté : c'est
+            // une liste de publications (ex. résultats de recherche), pas une seule publication.
+            // On masque alors chaque élément séparément plutôt que tout le bloc.
+            if (n.bounds.height() > clip.height() * 4 / 10) {
+                // On traverse les simples « emballages » (un seul enfant avec du texte).
+                var inner = n
+                while (true) {
+                    val withText = inner.children.filter { it.fullText.isNotBlank() }
+                    if (withText.size != 1) break
+                    inner = withText[0]
+                }
+                val hits = inner.children.count { it.fullText.isNotBlank() && classifier.classify(it.fullText) != null }
+                if (hits >= 2) {
+                    var any = false
+                    for (c in inner.children) if (visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
+                    if (any) return true
+                }
+            }
             add(n, clip, match.label, out, usedKeys)
             return true
         }

@@ -1,5 +1,7 @@
 package com.mindfilter.app.ui.screens
 
+import com.mindfilter.app.ui.bottomBarSpace
+import com.mindfilter.app.ui.navBarSpace
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -96,7 +98,7 @@ fun AppsScreen() {
 
     LazyColumn(
         modifier = Modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomBarSpace()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item { ScreenTitle("Applications", "MindFilter n'analyse que les applis cochées.") }

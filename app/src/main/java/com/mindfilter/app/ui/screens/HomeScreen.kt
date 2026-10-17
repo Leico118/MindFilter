@@ -1,5 +1,7 @@
 package com.mindfilter.app.ui.screens
 
+import com.mindfilter.app.ui.bottomBarSpace
+import com.mindfilter.app.ui.navBarSpace
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -89,7 +91,7 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
 
     LazyColumn(
         modifier = Modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomBarSpace()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { ScreenTitle("MindFilter", "Vos fils d'actualité, sans ce qui vous angoisse.") }

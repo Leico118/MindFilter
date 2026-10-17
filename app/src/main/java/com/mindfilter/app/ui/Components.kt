@@ -1,5 +1,8 @@
 package com.mindfilter.app.ui
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -414,3 +417,16 @@ fun AccentPicker(
         }
     }
 }
+
+/**
+ * Espace à laisser en bas des listes pour que rien ne passe sous la barre d'onglets ni sous
+ * la barre de navigation d'Android (boutons ◁ ○ ▢ ou barre de gestes, variable selon le téléphone).
+ */
+@Composable
+fun bottomBarSpace(): Dp =
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp
+
+/** Même chose pour les écrans sans barre d'onglets (détail d'une catégorie). */
+@Composable
+fun navBarSpace(): Dp =
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp
