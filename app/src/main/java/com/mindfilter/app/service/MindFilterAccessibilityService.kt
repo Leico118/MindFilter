@@ -103,6 +103,18 @@ class MindFilterAccessibilityService : AccessibilityService() {
             }
         }
         ServiceStatus.connected.value = true
+        // Vérifie de temps en temps s'il existe une nouvelle version (au plus toutes les 6 h).
+        workerHandler.postDelayed(updateCheck, 30_000)
+    }
+
+    private val updateCheck: Runnable = object : Runnable {
+        override fun run() {
+            try {
+                com.mindfilter.app.update.UpdateNotifier.checkIfDue(this@MindFilterAccessibilityService)
+            } catch (_: Exception) {
+            }
+            if (::workerHandler.isInitialized) workerHandler.postDelayed(this, 60L * 60 * 1000)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

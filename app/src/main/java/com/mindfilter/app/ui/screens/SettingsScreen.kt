@@ -96,7 +96,18 @@ fun SettingsScreen(resumeTick: Int) {
     val serviceEnabled = remember(resumeTick, connected) { Permissions.isAccessibilityEnabled(ctx) || connected }
     val systemDark = isSystemInDarkTheme()
 
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scrollToUpdate by com.mindfilter.app.ui.UiRequests.scrollToUpdate.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(scrollToUpdate) {
+        if (scrollToUpdate) {
+            com.mindfilter.app.ui.UiRequests.scrollToUpdate.value = false
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) listState.animateScrollToItem(last)
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.statusBarsPadding(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -246,7 +257,7 @@ fun SettingsScreen(resumeTick: Int) {
                 Spacer(Modifier.height(10.dp))
                 listOf(
                     "Toute l'analyse a lieu sur votre téléphone.",
-                    "Internet ne sert qu'au bouton « Vérifier les mises à jour » : aucun texte analysé n'est jamais envoyé.",
+                    "Internet ne sert qu'à vérifier les mises à jour (demande de la dernière version à GitHub) : aucun texte analysé n'est jamais envoyé.",
                     "Aucun texte, aucune conversation, aucune capture d'écran n'est enregistré.",
                     "Les champs de saisie et les mots de passe ne sont jamais lus.",
                     "Pas de compte, pas de publicité, pas de suivi.",
@@ -389,6 +400,49 @@ private fun UpdateCard() {
                     PillButton("Réessayer", Modifier.weight(1f)) { scope.launch { Updater.check(ctx) } }
                     PillButton("Via le navigateur", Modifier.weight(1f), filled = false) { Updater.openInBrowser(ctx) }
                 }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        UpdateNotificationRow()
+    }
+}
+
+/** Interrupteur « Me prévenir des nouvelles versions » (+ autorisation Android 13+). */
+@Composable
+private fun UpdateNotificationRow() {
+    val g = LocalGlass.current
+    val ctx = LocalContext.current
+    var enabled by remember { mutableStateOf(com.mindfilter.app.update.UpdateNotifier.isEnabled(ctx)) }
+    var allowed by remember { mutableStateOf(com.mindfilter.app.update.UpdateNotifier.canNotify(ctx)) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> allowed = granted }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Me prévenir des nouvelles versions", color = g.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Une notification quand une mise à jour sort", color = g.textSecondary, fontSize = 12.sp)
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = { v ->
+                enabled = v
+                com.mindfilter.app.update.UpdateNotifier.setEnabled(ctx, v)
+            },
+            colors = SwitchDefaults.colors(checkedTrackColor = g.positive, checkedThumbColor = Color.White),
+        )
+    }
+    if (enabled && !allowed && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        Spacer(Modifier.height(8.dp))
+        Text("Les notifications de MindFilter sont bloquées par Android.", color = g.warning, fontSize = 12.sp)
+        Spacer(Modifier.height(8.dp))
+        PillButton("Autoriser les notifications", Modifier.fillMaxWidth(), filled = false) {
+            if (com.mindfilter.app.update.UpdateNotifier.askedOnce(ctx)) {
+                // Déjà refusé une fois : Android ne redemande plus, on ouvre les réglages de l'appli.
+                Permissions.openAppDetails(ctx)
+            } else {
+                com.mindfilter.app.update.UpdateNotifier.markAsked(ctx)
+                launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }

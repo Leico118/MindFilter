@@ -2,13 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        Internet sert UNIQUEMENT au bouton « Vérifier les mises à jour » (Réglages) :
+        Internet sert UNIQUEMENT aux mises à jour (bouton dans Réglages + vérification toutes les 6 h) :
         lecture de la dernière version publiée sur GitHub et téléchargement de l'APK.
         Le service d'accessibilité n'envoie jamais rien : aucun texte ne quitte le téléphone.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Permet de proposer l'installation de la mise à jour (Android demande l'accord). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Notification « nouvelle version disponible » (désactivable dans Réglages). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Liste des applications lançables (écran « Applications »), sans QUERY_ALL_PACKAGES. -->
     <queries>

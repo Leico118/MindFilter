@@ -61,15 +61,21 @@ import com.mindfilter.app.ui.screens.SettingsScreen
 import com.mindfilter.app.ui.theme.LocalGlass
 import com.mindfilter.app.ui.theme.MindFilterTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.mindfilter.app.update.UpdateNotifier
+import com.mindfilter.app.update.Updater
 
 class MainActivity : ComponentActivity() {
 
     /** Incrémenté à chaque retour dans l'appli pour rafraîchir l'état des autorisations. */
     private val resumeTick = MutableStateFlow(0)
 
+    private val notificationPermission =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
+        handleIntent(intent)
         enableEdgeToEdge()
         setContent {
             val settings by AppSettings.state.collectAsStateWithLifecycle()
@@ -82,10 +88,44 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Ouverture depuis la notification « mise à jour disponible » : on va droit à la mise à jour. */
+    private fun handleIntent(intent: android.content.Intent?) {
+        if (intent?.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_UPDATE, false) == true) {
+            intent.removeExtra(UpdateNotifier.EXTRA_OPEN_UPDATE)
+            UiRequests.openUpdate.value = true
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         resumeTick.value += 1
+        // Vérification discrète d'une nouvelle version (au plus toutes les 6 h).
+        val app = applicationContext
+        Thread { try { UpdateNotifier.checkIfDue(app) } catch (_: Exception) { } }.start()
+        // Android 13+ : demande (une seule fois) l'autorisation d'afficher la notification,
+        // après le guide de démarrage pour ne pas tout demander d'un coup.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            !AppSettings.tutorial.value && UpdateNotifier.isEnabled(this) &&
+            !UpdateNotifier.canNotify(this) && !UpdateNotifier.askedOnce(this)
+        ) {
+            UpdateNotifier.markAsked(this)
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
+}
+
+/** Demandes ponctuelles entre l'activité et l'interface. */
+object UiRequests {
+    /** Aller à la carte « Mise à jour » et lancer la vérification. */
+    val openUpdate = MutableStateFlow(false)
+    /** Faire défiler les Réglages jusqu'à la carte « Mise à jour ». */
+    val scrollToUpdate = MutableStateFlow(false)
 }
 
 private data class Tab(val title: String, val icon: ImageVector)
@@ -113,6 +153,19 @@ private fun MindFilterRoot(resumeTick: Int) {
     // Mémorise la position de défilement de chaque écran (et de chaque catégorie) :
     // en revenant en arrière, la liste réapparaît exactement là où on l'avait quittée.
     val screenStates = rememberSaveableStateHolder()
+
+    // Ouverture depuis la notification de mise à jour : onglet Réglages + vérification.
+    val openUpdate by UiRequests.openUpdate.collectAsStateWithLifecycle()
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    LaunchedEffect(openUpdate) {
+        if (openUpdate) {
+            openCategory = null
+            tab = 4
+            UiRequests.openUpdate.value = false
+            UiRequests.scrollToUpdate.value = true
+            Updater.check(appContext)
+        }
+    }
 
     // Guide de démarrage (première installation, ou relancé depuis Réglages).
     val tutorialOn by AppSettings.tutorial.collectAsStateWithLifecycle()

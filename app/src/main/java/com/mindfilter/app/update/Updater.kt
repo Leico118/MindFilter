@@ -61,6 +61,26 @@ object Updater {
             setRequestProperty("User-Agent", "MindFilter-Android")
         }
 
+    /** Dernière version publiée (numéro, lien de l'APK), ou null si indisponible. BLOQUANT. */
+    fun fetchLatestBlocking(): Pair<String, String>? = try {
+        val c = open(API).apply { setRequestProperty("Accept", "application/vnd.github+json") }
+        if (c.responseCode != 200) {
+            null
+        } else {
+            val json = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            val tag = json.optString("tag_name").removePrefix("v")
+            var apk = FALLBACK_APK
+            val assets = json.optJSONArray("assets")
+            if (assets != null) for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                if (a.optString("name") == "MindFilter.apk") apk = a.optString("browser_download_url", apk)
+            }
+            if (tag.isBlank()) null else tag to apk
+        }
+    } catch (e: Exception) {
+        null
+    }
+
     suspend fun check(ctx: Context) {
         _state.value = State.Checking
         _state.value = withContext(Dispatchers.IO) {
