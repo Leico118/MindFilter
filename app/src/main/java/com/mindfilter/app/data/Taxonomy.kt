@@ -140,7 +140,7 @@ val FICTION_MARKERS = listOf(
 )
 
 // ---------------------------------------------------------------------------
-// Les dix catégories
+// Les catégories
 // ---------------------------------------------------------------------------
 
 val TAXONOMY: List<Category> = listOf(
@@ -155,6 +155,7 @@ val TAXONOMY: List<Category> = listOf(
     catClimat(),
     catMenaces(),
     catAdulte(),
+    catHorreur(),
 )
 
 private fun catSante(): Category =
@@ -847,5 +848,119 @@ private fun catAdulte(): Category = Category(
     ),
 ).let { c ->
     // Les contenus pour adultes restent masqués même dans un contexte « manga » ou humoristique.
+    c.copy(subCategories = c.subCategories.map { sc -> sc.copy(themes = sc.themes.map { it.copy(ignoreContext = true) }) })
+}
+
+private fun catHorreur(): Category = Category(
+    "horreur", "Horreur et contenus effrayants", "Films d'horreur, fantômes, monstres, images choquantes, phobies…", false,
+    listOf(
+        sub(
+            "horreur.fiction", "Films, séries et jeux d'horreur",
+            t(
+                "horreur.fiction.films", "Films d'horreur",
+                s(
+                    "film d'horreur", "films d'horreur", "film d'épouvante", "films d'épouvante", "film horrifique",
+                    "films horrifiques", "film de zombie*", "slasher*", "found footage", "jumpscare*", "jump scare*",
+                    "conjuring", "annabelle", "insidious", "paranormal activity", "massacre à la tronçonneuse",
+                    "freddy krueger", "jason voorhees", "michael myers", "chucky", "pennywise", "l'exorciste",
+                    "hereditary", "midsommar", "terrifier", "art the clown", "evil dead", "ghostface", "babadook",
+                    "m3gan", "la nonne", "the nun", "the ring", "the grudge", "destination finale",
+                ),
+                m("horreur", "horrifique*", "épouvante", "halloween"),
+                w("saw", "scream", "smile"),
+            ),
+            t(
+                "horreur.fiction.series", "Séries d'horreur",
+                s("série d'horreur", "séries d'horreur", "american horror story", "the walking dead", "walking dead", "chair de poule"),
+            ),
+            t(
+                "horreur.fiction.jeux", "Jeux vidéo d'horreur",
+                s(
+                    "jeu d'horreur", "jeux d'horreur", "survival horror", "five nights at freddy*", "fnaf", "resident evil",
+                    "silent hill", "outlast", "amnesia", "dead by daylight", "phasmophobia", "poppy playtime", "huggy wuggy",
+                ),
+            ),
+        ),
+        sub(
+            "horreur.surnaturel", "Fantômes et surnaturel",
+            t(
+                "horreur.surnaturel.fantomes", "Fantômes et maisons hantées",
+                s(
+                    "fantôme*", "esprit frappeur", "poltergeist", "maison hantée", "maisons hantées", "manoir hanté",
+                    "hanté", "hantée", "hantés", "hantées", "hantise", "apparition paranormale", "chasse aux fantômes",
+                    "ghost hunting", "ouija", "planche de ouija", "esprits frappeurs", "maison maudite",
+                ),
+                m("paranormal*", "surnaturel*"),
+            ),
+            t(
+                "horreur.surnaturel.demons", "Démons et possessions",
+                s(
+                    "démon", "démons", "démoniaque*", "possession démoniaque", "possédé par un", "possédée par un",
+                    "exorcisme*", "exorciste*", "satanique*", "rituel satanique", "invoquer un démon",
+                ),
+                m("malédiction*", "invocation"),
+            ),
+            t(
+                "horreur.surnaturel.monstres", "Monstres et créatures",
+                s(
+                    "zombie*", "mort-vivant", "morts-vivants", "mort vivant", "morts vivants", "wendigo", "skinwalker*",
+                    "siren head", "slender man", "slenderman", "cryptide*", "créature terrifiante", "monstre terrifiant",
+                ),
+                m("monstre*", "créature*", "vampire*", "loup-garou", "loups-garous"),
+            ),
+        ),
+        sub(
+            "horreur.effroi", "Contenus qui font peur",
+            t(
+                "horreur.effroi.histoires", "Histoires qui font peur",
+                s(
+                    "creepypasta*", "histoire qui fait peur", "histoires qui font peur", "histoire effrayante",
+                    "histoires effrayantes", "histoire terrifiante", "récit terrifiant", "légende urbaine", "légendes urbaines",
+                    "à ne pas regarder seul*", "ne regardez pas seul*", "ne regarde pas ça la nuit", "à ne pas regarder la nuit",
+                    "horror story", "scary story", "true scary",
+                ),
+                m("flippant*", "glauque*", "terrifiant*", "effrayant*", "qui fait peur", "font peur", "fait froid dans le dos", "frissons garantis", "creepy", "scary"),
+            ),
+            t(
+                "horreur.effroi.choquant", "Images et vidéos choquantes",
+                s(
+                    "image choquante", "images choquantes", "vidéo choquante", "vidéos choquantes", "contenu choquant",
+                    "âmes sensibles", "déconseillé aux âmes sensibles", "attention images", "attention ces images", "gore",
+                    "tw gore", "screamer*", "images difficiles",
+                ),
+                m("choquant*", "choquante*", "dérangeant*", "dérangeante*", "malaisant*"),
+            ),
+            t(
+                "horreur.effroi.clowns", "Clowns et poupées effrayants",
+                s(
+                    "clown tueur", "clowns tueurs", "clown effrayant", "clowns effrayants", "clown maléfique",
+                    "poupée hantée", "poupées hantées", "poupée maléfique", "poupée possédée", "poupée effrayante",
+                ),
+                all(STRONG, listOf("clown*", "poupée*"), listOf("effrayant*", "terrifiant*", "hanté*", "maléfique*", "tueur*", "sinistre*", "flippant*", "possédé*")),
+            ),
+        ),
+        sub(
+            "horreur.phobies", "Phobies",
+            t(
+                "horreur.phobies.araignees", "Araignées",
+                s("araignée*", "tarentule*", "mygale*", "arachnide*", "arachnophobie", "veuve noire"),
+            ),
+            t(
+                "horreur.phobies.serpents", "Serpents",
+                s("serpent*", "vipère*", "cobra*", "crotale*", "anaconda*", "mamba*", "ophiophobie"),
+            ),
+            t(
+                "horreur.phobies.insectes", "Insectes grouillants",
+                s("cafard*", "blatte*", "asticot*", "vers grouillants", "nid de frelons", "frelon asiatique", "punaises de lit", "punaise de lit", "infestation*"),
+            ),
+            t(
+                "horreur.phobies.trypophobie", "Trypophobie (petits trous)",
+                s("trypophobie", "trypophobe*", "trous groupés"),
+            ),
+        ),
+    ),
+).let { c ->
+    // L'horreur, c'est justement souvent de la fiction (films, jeux) : le contexte « film » ou
+    // « jeu vidéo » n'empêche donc pas le masquage, contrairement aux autres catégories.
     c.copy(subCategories = c.subCategories.map { sc -> sc.copy(themes = sc.themes.map { it.copy(ignoreContext = true) }) })
 }
