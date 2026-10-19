@@ -11,6 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Tesseract (lecture du texte dans les images), compilé pour Android.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

@@ -28,6 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.rememberCoroutineScope
@@ -229,6 +231,45 @@ fun SettingsScreen(resumeTick: Int) {
 
         item {
             GlassCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Header(
+                            Icons.Filled.Image,
+                            Color(0xFFFF9F0A),
+                            "Analyse des images",
+                            if (s.imageAnalysis) "Activée · expérimental" else "Désactivée · expérimental",
+                        )
+                    }
+                    Switch(
+                        checked = s.imageAnalysis,
+                        enabled = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R,
+                        onCheckedChange = { v -> AppSettings.update { it.copy(imageAnalysis = v) } },
+                        colors = SwitchDefaults.colors(checkedTrackColor = g.positive, checkedThumbColor = Color.White),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "MindFilter regarde aussi les images : il reconnaît certains objets (araignées, serpents, armes, chars, ambulances…) " +
+                        "et lit le texte écrit dans les images (mèmes, captures d'articles). Si le sujet fait partie de vos catégories, " +
+                        "la publication est masquée.",
+                    color = g.textSecondary, fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "• Une image peut rester visible un court instant avant d'être masquée (le temps de l'analyser).\n" +
+                        "• L'écran est capturé en mémoire pour l'analyse, puis effacé : rien n'est enregistré ni envoyé.\n" +
+                        "• Consomme un peu plus de batterie.",
+                    color = g.textSecondary, fontSize = 12.sp,
+                )
+                if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Nécessite Android 11 ou plus récent.", color = g.warning, fontSize = 12.sp)
+                }
+            }
+        }
+
+        item {
+            GlassCard {
                 Header(Icons.Filled.TouchApp, Color(0xFF32ADE6), "Gestes sur les masques")
                 Spacer(Modifier.height(12.dp))
                 Segmented(TouchMode.entries.toList(), s.touchMode, { it.label }) { v -> AppSettings.update { it.copy(touchMode = v) } }
@@ -260,7 +301,7 @@ fun SettingsScreen(resumeTick: Int) {
                 listOf(
                     "Toute l'analyse a lieu sur votre téléphone.",
                     "Internet ne sert qu'à vérifier les mises à jour (demande de la dernière version à GitHub) : aucun texte analysé n'est jamais envoyé.",
-                    "Aucun texte, aucune conversation, aucune capture d'écran n'est enregistré.",
+                    "Aucun texte, aucune conversation, aucune capture d'écran n'est enregistré (l'analyse des images travaille en mémoire puis efface tout).",
                     "Les champs de saisie et les mots de passe ne sont jamais lus.",
                     "Pas de compte, pas de publicité, pas de suivi.",
                 ).forEach {
@@ -276,6 +317,24 @@ fun SettingsScreen(resumeTick: Int) {
                 Header(Icons.Filled.Lightbulb, g.accent, "Guide de démarrage", "Revoir les étapes pour bien commencer")
                 Spacer(Modifier.height(12.dp))
                 PillButton("Revoir le guide", Modifier.fillMaxWidth(), filled = false) { AppSettings.restartTutorial() }
+            }
+        }
+
+        if (s.devMode) {
+            item {
+                GlassCard {
+                    Header(Icons.Filled.Science, Color(0xFF5E5CE6), "Mode développeur", "Apprentissage des images")
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Apprends à MindFilter à reconnaître des images par l'exemple, teste-le, puis exporte un fichier à intégrer aux mises à jour.",
+                        color = g.textSecondary, fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PillButton("Ouvrir", Modifier.weight(1f)) { com.mindfilter.app.ui.UiRequests.openLearning.value = true }
+                        PillButton("Désactiver", Modifier.weight(1f), filled = false) { AppSettings.update { it.copy(devMode = false) } }
+                    }
+                }
             }
         }
 
@@ -350,7 +409,27 @@ private fun UpdateCard() {
             is Updater.State.ReadyToInstall -> g.positive to "Version ${u.version} prête à installer"
             else -> g.textSecondary to "MindFilter $current"
         }
-        Header(Icons.Filled.SystemUpdate, tint, "Mise à jour", subtitle)
+        // Toucher 7 fois cet en-tête déverrouille le mode développeur (comme sur Android).
+        var taps by remember { mutableStateOf(0) }
+        androidx.compose.foundation.layout.Box(
+            Modifier.clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+            ) {
+                taps++
+                val left = 7 - taps
+                if (AppSettings.state.value.devMode) {
+                    if (taps == 1) android.widget.Toast.makeText(ctx, "Le mode développeur est déjà activé.", android.widget.Toast.LENGTH_SHORT).show()
+                } else if (left <= 0) {
+                    AppSettings.update { it.copy(devMode = true) }
+                    android.widget.Toast.makeText(ctx, "Mode développeur activé.", android.widget.Toast.LENGTH_SHORT).show()
+                } else if (left <= 3) {
+                    android.widget.Toast.makeText(ctx, "Encore $left appui(s) pour le mode développeur.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
+        ) {
+            Header(Icons.Filled.SystemUpdate, tint, "Mise à jour", subtitle)
+        }
         Spacer(Modifier.height(12.dp))
         when (val u = st) {
             is Updater.State.Idle, is Updater.State.UpToDate -> {

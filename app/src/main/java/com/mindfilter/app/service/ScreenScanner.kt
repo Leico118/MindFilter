@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import com.mindfilter.app.engine.ContentClassifier
+import com.mindfilter.app.engine.MatchResult
 
 /** Copie légère d'un nœud d'accessibilité (rien n'est conservé après l'analyse). */
 class SNode(
@@ -18,6 +19,8 @@ class SNode(
     var fullText: String = ""
     /** Nœud déjà chargé par l'appli mais pas encore affiché (au-dessus/au-dessous de l'écran). */
     var offscreen: Boolean = false
+    /** Une image de ce bloc a été reconnue comme à masquer (option « Analyse des images »). */
+    var flagLabel: String? = null
     /** Ce nœud ou un de ses descendants est une liste qui défile. */
     var hasScrollable: Boolean = scrollable
 }
@@ -134,7 +137,7 @@ object ScreenScanner {
         out: MutableList<MaskTarget>,
         usedKeys: MutableSet<String>,
     ): Boolean {
-        if (n.fullText.isBlank() || out.size >= 60) return false
+        if ((n.fullText.isBlank() && n.flagLabel == null) || out.size >= 60) return false
         val childClip = Rect(clip)
         if (n.scrollable && !childClip.intersect(n.bounds)) return false
 
@@ -145,7 +148,9 @@ object ScreenScanner {
             n.bounds.height() >= clip.height() * 6 / 10 && n.children.isNotEmpty()
         val tooBig = n.scrollable || fillsList || n.bounds.height() > maxHeight || n.bounds.width() <= 0
         if (!tooBig) {
-            val match = classifier.classify(n.fullText) ?: return false
+            val match = classifier.classify(n.fullText)
+                ?: n.flagLabel?.let { MatchResult("image", it, 4) }
+                ?: return false
             // Grand bloc qui contient PLUSIEURS éléments concernés chacun de son côté : c'est
             // une liste de publications (ex. résultats de recherche), pas une seule publication.
             // On masque alors chaque élément séparément plutôt que tout le bloc.
@@ -183,6 +188,41 @@ object ScreenScanner {
             }
         }
         return added
+    }
+
+    class ImageCandidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect)
+
+    /**
+     * Repère les images visibles (éléments sans texte, assez grands) et marque les blocs dont
+     * une image a déjà été reconnue comme à masquer. Une image est identifiée par l'élément qui
+     * l'affiche + le début du texte de sa publication (auteur, première ligne) : si l'appli
+     * réutilise le cadre pour une autre publication, ce n'est plus la même clé.
+     */
+    fun markImages(root: SNode, screen: Rect, maxHeight: Int, lookup: (String) -> String?): List<ImageCandidate> {
+        val out = ArrayList<ImageCandidate>()
+        val minW = screen.width() * 3 / 10
+        val minH = screen.width() / 5
+        fun walk(n: SNode, context: String): String? {
+            val ctx = if (context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()) n.fullText.take(60) else context
+            var flag: String? = null
+            val info = n.info
+            val looksLikeImage = info != null && !n.offscreen && n.ownText.isBlank() &&
+                n.children.none { it.fullText.isNotBlank() } &&
+                n.bounds.width() >= minW && n.bounds.height() >= minH
+            if (looksLikeImage && info != null) {
+                val key = "${info.hashCode()}|${ctx.hashCode()}"
+                val label = lookup(key)
+                if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds)))
+            }
+            for (c in n.children) {
+                val f = walk(c, ctx)
+                if (flag == null && f != null) flag = f
+            }
+            n.flagLabel = flag
+            return flag
+        }
+        walk(root, "")
+        return out
     }
 
     private fun add(n: SNode, clip: Rect, label: String, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {

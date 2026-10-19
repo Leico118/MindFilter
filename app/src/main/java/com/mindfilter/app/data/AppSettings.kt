@@ -126,6 +126,10 @@ data class SettingsState(
     val maskStyle: MaskStyle = MaskStyle.AUTO,
     val touchMode: TouchMode = TouchMode.PROTECT,
     val autoActivation: Boolean = true,
+    /** Analyse des images (reconnaissance d'objets + lecture du texte), désactivée par défaut. */
+    val imageAnalysis: Boolean = false,
+    /** Mode développeur (apprentissage des images), déverrouillé en touchant 7 fois la version. */
+    val devMode: Boolean = false,
     val customFilters: List<CustomFilter> = emptyList(),
     /** Mots « toujours afficher » : ils annulent les thèmes cochés. */
     val exceptions: List<String> = emptyList(),
@@ -214,6 +218,8 @@ object AppSettings {
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
+            imageAnalysis = prefs.getBoolean("imageAnalysis", d.imageAnalysis),
+            devMode = prefs.getBoolean("devMode", d.devMode),
             customFilters = parseFilters(prefs.getString("customFilters", null)),
             exceptions = parseStrings(prefs.getString("exceptions", null)),
         )
@@ -234,6 +240,8 @@ object AppSettings {
             .putString("maskStyle", s.maskStyle.name)
             .putString("touchMode", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
+            .putBoolean("imageAnalysis", s.imageAnalysis)
+            .putBoolean("devMode", s.devMode)
             .putString("customFilters", serializeFilters(s.customFilters))
             .putString("exceptions", JSONArray(s.exceptions).toString())
             .apply()

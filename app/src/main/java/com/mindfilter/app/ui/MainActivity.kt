@@ -124,6 +124,8 @@ class MainActivity : ComponentActivity() {
 object UiRequests {
     /** Aller à la carte « Mise à jour » et lancer la vérification. */
     val openUpdate = MutableStateFlow(false)
+    /** Ouvrir l'écran « Apprentissage » du mode développeur. */
+    val openLearning = MutableStateFlow(false)
     /** Faire défiler les Réglages jusqu'à la carte « Mise à jour ». */
     val scrollToUpdate = MutableStateFlow(false)
 }
@@ -201,7 +203,16 @@ private fun MindFilterRoot(resumeTick: Int) {
             }
             }
         }
-        if (openCategory == null && !imeVisible) {
+        // Mode développeur : écran d'apprentissage par-dessus le reste.
+        val learning by UiRequests.openLearning.collectAsStateWithLifecycle()
+        if (learning) {
+            Box(Modifier.fillMaxSize().background(LocalGlass.current.bgTop)) {
+                GlassBackground {
+                    com.mindfilter.app.ui.screens.LearningScreen(onBack = { UiRequests.openLearning.value = false })
+                }
+            }
+        }
+        if (openCategory == null && !imeVisible && !learning) {
             GlassTabBar(
                 selected = tab,
                 onSelect = { tab = it },

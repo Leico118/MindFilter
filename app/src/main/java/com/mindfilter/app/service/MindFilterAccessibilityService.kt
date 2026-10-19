@@ -91,6 +91,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 settings = s
                 if (filterChanged || !packageFilterApplied) applyPackageFilter(s)
                 if (rebuild) {
+                    // Les thèmes ont changé : les images déjà jugées doivent l'être à nouveau.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        (analyzer as? com.mindfilter.app.vision.ImageAnalyzer)?.reset()
+                    }
                     workerHandler.post {
                         val themes = s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] }
                         classifier = KeywordClassifier(themes, s.customFilters, s.restrictionLevel, s.exceptions)
@@ -212,10 +216,27 @@ class MindFilterAccessibilityService : AccessibilityService() {
         } ?: return
 
         val maxHeight = (screen.height() * 0.78f).toInt()
+        // Option « Analyse des images » : marque les images déjà reconnues et liste les nouvelles.
+        val vision = visionFor(s)
+        val images = if (vision != null) {
+            try {
+                ScreenScanner.markImages(snap, screen, maxHeight) { vision.labelFor(it) }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
         val targets = try {
             ScreenScanner.findTargets(snap, c, screen, maxHeight)
         } catch (e: Exception) {
             emptyList()
+        }
+        if (vision != null && images.isNotEmpty()) {
+            vision.classifier = c
+            vision.enabledThemes = s.enabledThemes
+            vision.maskedAreas = targets.map { t -> Rect(t.rect).also { r -> if (!r.intersect(t.clip)) r.setEmpty() } }
+            vision.request(images.map { com.mindfilter.app.vision.ImageAnalyzer.Candidate(it.key, it.node, it.bounds) })
         }
         val dark = when (s.maskStyle) {
             MaskStyle.DARK -> true
@@ -250,6 +271,23 @@ class MindFilterAccessibilityService : AccessibilityService() {
             }
             ServiceStatus.currentlyMasked.value = overlay.count
         }
+    }
+
+    @Volatile private var analyzer: Any? = null
+
+    /** Analyseur d'images, créé à la demande si l'option est activée (Android 11 et plus). */
+    private fun visionFor(s: SettingsState): com.mindfilter.app.vision.ImageAnalyzer? {
+        if (!s.imageAnalysis || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                (analyzer as? com.mindfilter.app.vision.ImageAnalyzer)?.quit()
+            }
+            analyzer = null
+            return null
+        }
+        (analyzer as? com.mindfilter.app.vision.ImageAnalyzer)?.let { return it }
+        val a = com.mindfilter.app.vision.ImageAnalyzer(this) { requestScan(0) }
+        analyzer = a
+        return a
     }
 
     @Volatile private var packageFilterApplied = false
@@ -390,6 +428,9 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (::overlay.isInitialized) overlay.clear()
         if (::worker.isInitialized) worker.quitSafely()
         if (::tracker.isInitialized) tracker.quit()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            (analyzer as? com.mindfilter.app.vision.ImageAnalyzer)?.quit()
+        }
         super.onDestroy()
     }
 }
