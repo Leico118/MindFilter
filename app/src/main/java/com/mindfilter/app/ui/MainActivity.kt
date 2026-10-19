@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeTick.value += 1
+        Updater.recoverIfStuck()
         // Vérification discrète d'une nouvelle version (au plus toutes les 6 h).
         val app = applicationContext
         Thread { try { UpdateNotifier.checkIfDue(app) } catch (_: Exception) { } }.start()
@@ -165,7 +166,7 @@ private fun MindFilterRoot(resumeTick: Int) {
             tab = 4
             UiRequests.openUpdate.value = false
             UiRequests.scrollToUpdate.value = true
-            Updater.check(appContext)
+            Updater.startCheck(appContext)
         }
     }
 

@@ -7,7 +7,11 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -169,4 +173,29 @@ object Updater {
     }
 
     fun reset() { _state.value = State.Idle }
+
+    // --- Lancement indépendant de l'écran ---------------------------------------------------
+    // La vérification et le téléchargement tournent dans leur propre « fil » : quitter l'écran,
+    // changer d'onglet ou fermer l'appli ne peut plus les interrompre en plein milieu (ce qui
+    // laissait l'appli bloquée sur « Recherche de la dernière version… »).
+    private val bg = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var job: Job? = null
+
+    fun startCheck(ctx: Context) {
+        if (job?.isActive == true) return
+        val app = ctx.applicationContext
+        job = bg.launch { check(app) }
+    }
+
+    fun startDownload(ctx: Context, version: String, url: String) {
+        if (job?.isActive == true) return
+        val app = ctx.applicationContext
+        job = bg.launch { download(app, version, url) }
+    }
+
+    /** Si un ancien état « en cours » est resté sans tâche active, on le débloque. */
+    fun recoverIfStuck() {
+        val st = _state.value
+        if ((st is State.Checking || st is State.Downloading) && job?.isActive != true) _state.value = State.Idle
+    }
 }

@@ -433,7 +433,7 @@ private fun UpdateCard() {
         Spacer(Modifier.height(12.dp))
         when (val u = st) {
             is Updater.State.Idle, is Updater.State.UpToDate -> {
-                PillButton("Vérifier les mises à jour", Modifier.fillMaxWidth()) { scope.launch { Updater.check(ctx) } }
+                PillButton("Vérifier les mises à jour", Modifier.fillMaxWidth()) { Updater.startCheck(ctx) }
             }
             is Updater.State.Checking -> {
                 LinearProgressIndicator(Modifier.fillMaxWidth(), color = g.accent, trackColor = g.chip)
@@ -442,7 +442,7 @@ private fun UpdateCard() {
             }
             is Updater.State.Available -> {
                 PillButton("Télécharger la version ${u.version}", Modifier.fillMaxWidth()) {
-                    scope.launch { Updater.download(ctx, u.version, u.apkUrl) }
+                    Updater.startDownload(ctx, u.version, u.apkUrl)
                 }
             }
             is Updater.State.Downloading -> {
@@ -478,7 +478,7 @@ private fun UpdateCard() {
                 Text(u.message, color = g.warning, fontSize = 13.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton("Réessayer", Modifier.weight(1f)) { scope.launch { Updater.check(ctx) } }
+                    PillButton("Réessayer", Modifier.weight(1f)) { Updater.startCheck(ctx) }
                     PillButton("Via le navigateur", Modifier.weight(1f), filled = false) { Updater.openInBrowser(ctx) }
                 }
             }
