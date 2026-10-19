@@ -190,7 +190,9 @@ object ScreenScanner {
         return added
     }
 
-    class ImageCandidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect)
+    /** [zone] = publication entière dont l'appli ne signale pas l'image (Reddit…) : l'image
+     *  sera cherchée directement dans la capture. */
+    class ImageCandidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect, val zone: Boolean = false)
 
     /**
      * Repère les images visibles (éléments sans texte, assez grands) et marque les blocs dont
@@ -203,7 +205,9 @@ object ScreenScanner {
         val minW = screen.width() * 3 / 10
         val minH = screen.width() / 5
         fun walk(n: SNode, context: String): String? {
-            val ctx = if (context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()) n.fullText.take(40) else context
+            val isPost = context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()
+            val ctx = if (isPost) n.fullText.take(40) else context
+            val before = out.size
             var flag: String? = null
             val info = n.info
             // Image = élément assez grand, sans enfant porteur de texte. Il peut avoir une courte
@@ -223,6 +227,16 @@ object ScreenScanner {
             for (c in n.children) {
                 val f = walk(c, ctx)
                 if (flag == null && f != null) flag = f
+            }
+            // Certaines applis (Reddit, applis en Jetpack Compose…) ne décrivent pas leurs images
+            // comme des éléments séparés. Si une publication assez grande ne contient aucune image
+            // repérée, on la propose entière : l'analyse cherchera l'image dans la capture.
+            if (isPost && flag == null && out.size == before && info != null && !n.offscreen &&
+                n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10
+            ) {
+                val key = "zone|${info.hashCode()}|${ctx.hashCode()}"
+                val label = lookup(key)
+                if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds), zone = true))
             }
             n.flagLabel = flag
             return flag

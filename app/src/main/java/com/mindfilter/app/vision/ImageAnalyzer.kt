@@ -29,7 +29,7 @@ class ImageAnalyzer(
     /** Appelé quand une image vient d'être reconnue comme à masquer (pour relancer l'analyse de l'écran). */
     private val onNewHit: () -> Unit,
 ) {
-    class Candidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect)
+    class Candidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect, val zone: Boolean = false)
 
     private val thread = HandlerThread("mindfilter-vision").also { it.start() }
     private val handler = Handler(thread.looper)
@@ -151,7 +151,19 @@ class ImageAnalyzer(
                 if (!r.intersect(0, 0, shot.width, shot.height)) continue
                 if (r.width() < 100 || r.height() < 100) continue
                 if (masks.any { it.contains(r.centerX(), r.centerY()) }) continue
-                val crop = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
+                var crop = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
+                if (c.zone) {
+                    // Publication entière : on y cherche la bande qui contient l'image.
+                    val band = ImageFinder.findImageBand(crop)
+                    if (band == null) {
+                        crop.recycle()
+                        synchronized(verdicts) { verdicts[c.key] = "" }
+                        continue
+                    }
+                    val sub = Bitmap.createBitmap(crop, band.left, band.top, band.width(), band.height())
+                    crop.recycle()
+                    crop = sub
+                }
                 val hash = dHash(crop)
                 val cached = synchronized(byHash) { byHash[hash] }
                 val label = cached ?: analyze(crop).also { synchronized(byHash) { byHash[hash] = it } }
