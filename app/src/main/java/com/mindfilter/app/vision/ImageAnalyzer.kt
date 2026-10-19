@@ -64,6 +64,7 @@ class ImageAnalyzer(
 
     /** Nouvelles images visibles : on en analyse quelques-unes à la prochaine capture. */
     fun request(candidates: List<Candidate>) {
+        VisionStats.candidates = candidates.size
         val todo = candidates.filter { !known(it.key) }
         if (todo.isEmpty()) return
         pending = todo
@@ -83,7 +84,14 @@ class ImageAnalyzer(
                 object : AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(result: AccessibilityService.ScreenshotResult) = process(result)
                     override fun onFailure(errorCode: Int) {
+                        VisionStats.shotsFailed++
+                        VisionStats.lastError = VisionStats.errorText(errorCode)
                         busy = false
+                        // Captures trop rapprochées : on réessaie un peu plus tard.
+                        if (errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+                            val rest = pending.filter { !known(it.key) }
+                            if (rest.isNotEmpty()) handler.postDelayed({ request(rest) }, MIN_INTERVAL_MS)
+                        }
                     }
                 },
             )
@@ -105,14 +113,22 @@ class ImageAnalyzer(
         }
         val shot = screen
         if (shot == null) {
+            VisionStats.shotsFailed++
+            VisionStats.lastError = "capture illisible"
             busy = false
             return
         }
+        VisionStats.shotsOk++
         var hit = false
         try {
             if (objects == null) objects = ObjectRecognizer(service)
             if (reader == null) reader = TextReader(service)
             if (embedder == null) embedder = ImageEmbedder(service)
+            VisionStats.models = listOf(
+                "empreintes" to (embedder?.available == true),
+                "objets" to (objects?.available == true),
+                "texte" to (reader?.available == true),
+            ).joinToString(" · ") { (n, ok) -> "$n ${if (ok) "✓" else "✗"}" }
             LearnedExamples.ensureLoaded(service)
             // Apprentissage modifié (mode développeur) : on rejuge les images.
             if (LearnedExamples.revision != learnedRevision) {
@@ -141,7 +157,12 @@ class ImageAnalyzer(
                 val label = cached ?: analyze(crop).also { synchronized(byHash) { byHash[hash] = it } }
                 crop.recycle()
                 synchronized(verdicts) { verdicts[c.key] = label }
-                if (label.isNotEmpty()) hit = true
+                VisionStats.analyzed++
+                if (label.isNotEmpty()) {
+                    hit = true
+                    VisionStats.hits++
+                    VisionStats.lastLabel = label
+                }
             }
         } catch (e: Throwable) {
         } finally {
@@ -158,6 +179,9 @@ class ImageAnalyzer(
         val themes = enabledThemes
         // 0. Ressemblance avec les exemples appris (mode développeur / apprentissage intégré)
         embedder?.takeIf { it.available }?.embed(img)?.let { v ->
+            LearnedExamples.scores(v).firstOrNull()?.let { (t, sim) ->
+                VisionStats.lastBest = "${if (t.isEmpty()) "Sans problème" else com.mindfilter.app.data.TaxonomyIndex.themeName(t)} ${(sim * 100).toInt()} %"
+            }
             LearnedExamples.match(v, themes)?.let { m ->
                 return "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)"
             }

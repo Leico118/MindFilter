@@ -232,6 +232,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             emptyList()
         }
+        if (vision != null) com.mindfilter.app.vision.VisionStats.candidates = images.size
         if (vision != null && images.isNotEmpty()) {
             vision.classifier = c
             vision.enabledThemes = s.enabledThemes

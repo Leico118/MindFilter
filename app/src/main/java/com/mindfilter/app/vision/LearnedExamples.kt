@@ -36,7 +36,7 @@ object LearnedExamples {
         private set
 
     /** Ressemblance minimale pour masquer (réglable dans le mode développeur). */
-    @Volatile var threshold = 0.80f
+    @Volatile var threshold = 0.75f
         private set
 
     /** Écart minimal avec l'exemple « sans problème » le plus proche. */
@@ -47,7 +47,7 @@ object LearnedExamples {
         synchronized(this) {
             if (loaded) return
             val app = ctx.applicationContext
-            threshold = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("threshold", 0.80f)
+            threshold = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("threshold", 0.75f)
             try {
                 app.assets.open("vision/learned.json").use { parse(it.bufferedReader().readText(), builtIn = true) }
                     .let { examples.addAll(it) }

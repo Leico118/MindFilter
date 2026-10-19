@@ -135,6 +135,10 @@ fun LearningScreen(onBack: () -> Unit) {
     var pendingTheme by remember { mutableStateOf<String?>(null) } // "" = sans problème
     var test by remember { mutableStateOf<TestResult?>(null) }
     var threshold by remember { mutableStateOf(LearnedExamples.threshold) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        withContext(Dispatchers.Default) { LearnedExamples.ensureLoaded(app) }
+        threshold = LearnedExamples.threshold
+    }
 
     fun learn(uris: List<Uri>, theme: String) {
         if (uris.isEmpty()) return
@@ -272,6 +276,48 @@ fun LearningScreen(onBack: () -> Unit) {
             }
         }
 
+        item { SectionTitle("Diagnostic en direct") }
+        item {
+            // Rafraîchi chaque seconde : ouvre une appli surveillée, reviens ici et regarde.
+            var tick by remember { mutableIntStateOf(0) }
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                while (true) {
+                    kotlinx.coroutines.delay(1000)
+                    tick++
+                }
+            }
+            val st = com.mindfilter.app.vision.VisionStats
+            val connected by com.mindfilter.app.data.ServiceStatus.connected.collectAsStateWithLifecycle()
+            GlassCard {
+                val refreshTick = tick // relu chaque seconde pour mettre à jour les chiffres
+                val lines = listOf(
+                    "Service d'accessibilité" to if (connected) "actif" else "inactif",
+                    "Analyse des images" to if (s.imageAnalysis) "activée" else "désactivée",
+                    "Modèles" to st.models.ifEmpty { "pas encore chargés" },
+                    "Images repérées à l'écran" to "${st.candidates}",
+                    "Captures réussies / refusées" to "${st.shotsOk} / ${st.shotsFailed}",
+                    "Images analysées / à masquer" to "${st.analyzed} / ${st.hits}",
+                    "Ressemblance de la dernière image" to st.lastBest.ifEmpty { "—" },
+                    "Dernière détection" to st.lastLabel.ifEmpty { "—" },
+                )
+                lines.forEach { (k, v) ->
+                    Row(Modifier.padding(vertical = 2.dp)) {
+                        Text(k, color = g.textSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(v, color = g.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                if (st.lastError.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Dernier refus de capture : ${st.lastError}", color = g.warning, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Astuce : ouvre l'appli surveillée sur l'image, attends 2 secondes, puis reviens ici pour lire ces chiffres.",
+                    color = g.textSecondary, fontSize = 12.sp,
+                )
+            }
+        }
+
         item { SectionTitle("Ce qui a été appris") }
         item {
             GlassCard {
@@ -405,8 +451,16 @@ private fun ThemeChooser(onDismiss: () -> Unit, onChosen: (String) -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text(cat?.name ?: "Que montrent ces images ?") },
         text = {
-            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            LazyColumn(Modifier.heightIn(max = 520.dp)) {
                 if (cat == null) {
+                    item {
+                        Text(
+                            "Faites défiler pour voir toutes les catégories (${TAXONOMY.size}).",
+                            color = g.textSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                    }
                     items(TAXONOMY) { c ->
                         Text(
                             c.name,

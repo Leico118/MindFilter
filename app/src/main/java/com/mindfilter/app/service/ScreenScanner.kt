@@ -203,11 +203,17 @@ object ScreenScanner {
         val minW = screen.width() * 3 / 10
         val minH = screen.width() / 5
         fun walk(n: SNode, context: String): String? {
-            val ctx = if (context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()) n.fullText.take(60) else context
+            val ctx = if (context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()) n.fullText.take(40) else context
             var flag: String? = null
             val info = n.info
-            val looksLikeImage = info != null && !n.offscreen && n.ownText.isBlank() &&
-                n.children.none { it.fullText.isNotBlank() } &&
+            // Image = élément assez grand, sans enfant porteur de texte. Il peut avoir une courte
+            // description (Facebook écrit « Peut être une image de… » sur ses photos), mais ce
+            // ne doit pas être un bloc de texte, un bouton ou un champ de saisie.
+            val cls = n.className.lowercase()
+            val textual = "text" in cls || "button" in cls || "edit" in cls
+            val looksLikeImage = info != null && !n.offscreen && !textual &&
+                ("image" in cls || n.ownText.length <= 250) &&
+                n.children.none { it.fullText.isNotBlank() && !it.className.lowercase().contains("image") } &&
                 n.bounds.width() >= minW && n.bounds.height() >= minH
             if (looksLikeImage && info != null) {
                 val key = "${info.hashCode()}|${ctx.hashCode()}"
