@@ -1,3 +1,10 @@
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.zip.ZipFile
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -65,42 +72,42 @@ val downloadVisionModels by tasks.registering {
     outputs.dir(out)
     doLast {
         val dir = out.get().asFile
-        fun fetch(url: String, dest: java.io.File) {
+        fun fetch(url: String, dest: File) {
             if (dest.exists() && dest.length() > 0) return
             dest.parentFile.mkdirs()
             try {
-                val c = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+                val c = URI(url).toURL().openConnection() as HttpURLConnection
                 c.instanceFollowRedirects = true
                 c.connectTimeout = 30_000
                 c.readTimeout = 120_000
-                c.inputStream.use { input -> dest.outputStream().use { input.copyTo(it) } }
+                c.inputStream.use { input: InputStream -> dest.outputStream().use { o: OutputStream -> input.copyTo(o) } }
                 println("Modèle téléchargé : ${dest.name} (${dest.length() / 1024} Ko)")
             } catch (e: Exception) {
                 dest.delete()
                 println("ATTENTION : téléchargement impossible de $url : ${e.message}")
             }
         }
-        fetch("https://github.com/tesseract-ocr/tessdata_fast/raw/main/fra.traineddata", java.io.File(dir, "tessdata/fra.traineddata"))
-        fetch("https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata", java.io.File(dir, "tessdata/eng.traineddata"))
+        fetch("https://github.com/tesseract-ocr/tessdata_fast/raw/main/fra.traineddata", File(dir, "tessdata/fra.traineddata"))
+        fetch("https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata", File(dir, "tessdata/eng.traineddata"))
         // Modèle « empreinte d'image » (MediaPipe / MobileNet V3) : sert à l'apprentissage par
         // l'exemple (mode développeur). Grand modèle d'abord, petit en secours.
-        val emb = java.io.File(dir, "vision/embedder.tflite")
+        val emb = File(dir, "vision/embedder.tflite")
         fetch("https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_large/float32/latest/mobilenet_v3_large.tflite", emb)
         fetch("https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/latest/mobilenet_v3_small.tflite", emb)
-        val zip = java.io.File(temporaryDir, "mobilenet.zip")
+        val zip = File(temporaryDir, "mobilenet.zip")
         fetch("https://storage.googleapis.com/download.tensorflow.org/models/tflite/mobilenet_v1_1.0_224_quant_and_labels.zip", zip)
         if (zip.exists()) {
             try {
-                java.util.zip.ZipFile(zip).use { z ->
+                ZipFile(zip).use { z: ZipFile ->
                     for (e in z.entries()) {
                         val name = when {
                             e.name.endsWith(".tflite") -> "vision/mobilenet.tflite"
                             e.name.endsWith(".txt") -> "vision/labels.txt"
                             else -> null
                         } ?: continue
-                        val f = java.io.File(dir, name)
+                        val f = File(dir, name)
                         f.parentFile.mkdirs()
-                        z.getInputStream(e).use { input -> f.outputStream().use { input.copyTo(it) } }
+                        z.getInputStream(e).use { input: InputStream -> f.outputStream().use { o: OutputStream -> input.copyTo(o) } }
                     }
                 }
             } catch (e: Exception) {
