@@ -75,11 +75,14 @@ private class LearningTools(ctx: Context) {
     private val embedderLazy = lazy { ImageEmbedder(ctx) }
     private val objectsLazy = lazy { ObjectRecognizer(ctx) }
     private val readerLazy = lazy { TextReader(ctx) }
+    private val nsfwLazy = lazy { com.mindfilter.app.vision.NsfwDetector(ctx) }
     val embedder by embedderLazy
     val objects by objectsLazy
     val reader by readerLazy
+    val nsfw by nsfwLazy
 
     fun close() {
+        if (nsfwLazy.isInitialized()) nsfw.close()
         if (embedderLazy.isInitialized()) embedder.close()
         if (objectsLazy.isInitialized()) objects.close()
         if (readerLazy.isInitialized()) reader.close()
@@ -103,6 +106,7 @@ private class TestResult(
     val learned: List<Pair<String, Float>>,
     val objects: List<Pair<String, Float>>,
     val text: String,
+    val nsfw: Float = -1f,
 )
 
 /**
@@ -133,6 +137,17 @@ fun LearningScreen(onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var chooseTheme by remember { mutableStateOf(false) }
     var pendingTheme by remember { mutableStateOf<String?>(null) } // "" = sans problème
+    var folderMode by remember { mutableStateOf(false) }
+    var folderTheme by remember { mutableStateOf<String?>(null) }
+    val folder by com.mindfilter.app.vision.FolderLearning.state.collectAsStateWithLifecycle()
+    // Import terminé : on met à jour la liste de ce qui a été appris.
+    androidx.compose.runtime.LaunchedEffect(folder.running) { if (!folder.running) refresh++ }
+    // Choix d'un dossier (accès temporaire, non conservé).
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        val t = folderTheme
+        folderTheme = null
+        if (tree != null && t != null) com.mindfilter.app.vision.FolderLearning.start(app, tree, t)
+    }
     var test by remember { mutableStateOf<TestResult?>(null) }
     var threshold by remember { mutableStateOf(LearnedExamples.threshold) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -152,9 +167,13 @@ fun LearningScreen(onBack: () -> Unit) {
                     for (u in uris) {
                         val bmp = loadBitmap(app, u) ?: continue
                         val v = tools.embedder.embed(bmp)
+                        // Version miroir : un deuxième exemple pour reconnaître l'image retournée.
+                        val mirror = com.mindfilter.app.vision.ImageLoading.mirror(bmp)
+                        val vm = tools.embedder.embed(mirror)
+                        mirror.recycle()
                         bmp.recycle()
                         if (v != null) {
-                            LearnedExamples.add(app, theme, safe = theme.isEmpty(), vector = v)
+                            LearnedExamples.addAll(app, theme, theme.isEmpty(), listOfNotNull(v, vm))
                             n++
                         }
                     }
@@ -191,13 +210,18 @@ fun LearningScreen(onBack: () -> Unit) {
                     val match = v?.let { LearnedExamples.match(it, enabled) }
                     val objs = if (tools.objects.available) tools.objects.recognize(bmp, 4) else emptyList()
                     val text = if (tools.reader.available) tools.reader.read(bmp) else ""
+                    val nsfwScore = if (tools.nsfw.available) tools.nsfw.score(bmp) else -1f
                     bmp.recycle()
+                    val adultOn = enabled.any { it.startsWith("adulte.") }
+                    val nsfwLimit = com.mindfilter.app.vision.NsfwDetector.thresholdFor(AppSettings.state.value.restrictionLevel)
                     val verdict = when {
+                        adultOn && nsfwScore >= nsfwLimit ->
+                            "Masquée : contenu pour adultes détecté (${(nsfwScore * 100).toInt()} %, seuil ${(nsfwLimit * 100).toInt()} %)"
                         match != null -> "Masquée : ressemble à « ${TaxonomyIndex.themeName(match.theme)} » (${(match.similarity * 100).toInt()} %)"
                         v == null -> "Modèle d'empreintes absent : seul le texte et les objets sont analysés."
                         else -> "Pas masquée par l'apprentissage."
                     }
-                    TestResult(verdict, learned, objs, text)
+                    TestResult(verdict, learned, objs, text, nsfwScore)
                 }
             }
             busy = false
@@ -276,6 +300,49 @@ fun LearningScreen(onBack: () -> Unit) {
             }
         }
 
+        item { SectionTitle("Apprendre depuis un dossier (NAS…)") }
+        item {
+            GlassCard {
+                Text(
+                    "Choisis un thème puis un dossier entier (sur le téléphone, une carte SD ou un NAS) : MindFilter lit chaque image en mémoire, " +
+                        "retient seulement son empreinte puis l'oublie. Aucune image n'est copiée ni gardée, et l'accès au dossier s'arrête à la fin. " +
+                        "Jusqu'à 5000 images, sous-dossiers compris.",
+                    color = g.textSecondary, fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(12.dp))
+                if (folder.running) {
+                    Text(folder.message, color = g.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    if (folder.found > 0) {
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { folder.done.toFloat() / folder.found },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = g.accent,
+                            trackColor = g.chip,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text("${folder.done} / ${folder.found} images · ${folder.learned} apprises", color = g.textSecondary, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    PillButton("Arrêter", Modifier.fillMaxWidth(), filled = false) { com.mindfilter.app.vision.FolderLearning.cancel() }
+                } else {
+                    PillButton("Dossier d'images à masquer…", Modifier.fillMaxWidth()) {
+                        folderMode = true
+                        chooseTheme = true
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    PillButton("Dossier d'images sans problème…", Modifier.fillMaxWidth(), filled = false) {
+                        folderTheme = ""
+                        pickFolder.launch(null)
+                    }
+                    if (folder.message.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(folder.message, color = g.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
         item { SectionTitle("Diagnostic en direct") }
         item {
             // Rafraîchi chaque seconde : ouvre une appli surveillée, reviens ici et regarde.
@@ -298,6 +365,7 @@ fun LearningScreen(onBack: () -> Unit) {
                     "Captures réussies / refusées" to "${st.shotsOk} / ${st.shotsFailed}",
                     "Images analysées / à masquer" to "${st.analyzed} / ${st.hits}",
                     "Ressemblance de la dernière image" to st.lastBest.ifEmpty { "—" },
+                    "Score « adultes » de la dernière image" to st.lastNsfw.ifEmpty { "—" },
                     "Dernière détection" to st.lastLabel.ifEmpty { "—" },
                 )
                 lines.forEach { (k, v) ->
@@ -385,6 +453,10 @@ fun LearningScreen(onBack: () -> Unit) {
                             color = g.text, fontSize = 13.sp,
                         )
                     }
+                    if (t.nsfw >= 0f) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("Score « contenu pour adultes » : ${(t.nsfw * 100).toInt()} %", color = g.text, fontSize = 13.sp)
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text("Texte lu dans l'image :", color = g.textSecondary, fontSize = 12.sp)
                     Text(t.text.ifBlank { "(aucun)" }.take(300), color = g.text, fontSize = 13.sp)
@@ -434,8 +506,14 @@ fun LearningScreen(onBack: () -> Unit) {
             onDismiss = { chooseTheme = false },
             onChosen = { theme ->
                 chooseTheme = false
-                pendingTheme = theme
-                pickMany.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                if (folderMode) {
+                    folderMode = false
+                    folderTheme = theme
+                    pickFolder.launch(null)
+                } else {
+                    pendingTheme = theme
+                    pickMany.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
             },
         )
     }

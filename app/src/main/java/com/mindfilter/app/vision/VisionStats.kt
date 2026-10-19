@@ -14,6 +14,7 @@ object VisionStats {
     @Volatile var lastLabel = ""          // dernière détection
     @Volatile var lastBest = ""           // meilleure ressemblance de la dernière image analysée
     @Volatile var models = ""             // modèles disponibles
+    @Volatile var lastNsfw = ""           // score « adultes » de la dernière image analysée
 
     fun errorText(code: Int): String = when (code) {
         1 -> "erreur interne d'Android"

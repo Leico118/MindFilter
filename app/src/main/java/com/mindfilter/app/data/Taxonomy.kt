@@ -780,41 +780,96 @@ private fun catAdulte(): Category = Category(
                     "porno", "pornos", "pornographie", "pornographique*", "porn", "porno*", "pornhub", "xvideos", "xnxx",
                     "youporn", "redtube", "xhamster", "brazzers", "film x", "films x", "video x", "videos x",
                     "film porno", "acteur porno", "actrice porno", "x rated",
+                    // Anglais
+                    "xxx", "porn video", "porn videos", "porn star", "pornstar*", "porn site", "free porn", "hardcore porn",
+                    "amateur porn", "homemade porn", "chaturbate", "stripchat", "spankbang", "eporner", "bangbros",
+                    "realitykings", "reality kings", "naughty america", "brazzer*", "pornographic", "adult video", "adult videos",
+                    "sex video", "sex videos", "xxx video", "xxx videos",
                 ),
+                m("hardcore", "softcore", "explicit"),
             ),
             t(
                 "adulte.porno.createurs", "Contenus payants (OnlyFans, MYM…)",
-                s("onlyfans", "only fans", "fansly", "mym fans", "mym", "lien en bio 18", "contenu exclusif 18", "abonne toi pour plus"),
+                s(
+                    "onlyfans", "only fans", "fansly", "mym fans", "mym", "lien en bio 18", "contenu exclusif 18", "abonne toi pour plus",
+                    "link in bio 18", "spicy content", "spicy link", "exclusive content 18", "of leak*", "onlyfans leak*",
+                    "leaked onlyfans", "subscribe to my of", "my of link", "check my of",
+                ),
                 all(STRONG, listOf("onlyfans", "mym", "fansly"), listOf("lien", "bio", "abonne*", "exclusif*", "contenu*")),
             ),
             t(
                 "adulte.porno.sextape", "Sextapes et vidéos intimes",
-                s("sextape*", "sex tape*", "video intime", "videos intimes", "leak nude*", "nudes leak*", "fuite de nudes"),
+                s(
+                    "sextape*", "sex tape*", "video intime", "videos intimes", "leak nude*", "nudes leak*", "fuite de nudes",
+                    "leaked nudes", "leaked video", "private video leak*", "revenge porn",
+                ),
             ),
         ),
         sub(
             "adulte.explicite", "Nudité et contenus sexuels",
             t(
                 "adulte.explicite.nudite", "Nudité",
-                s("nudes", "nude", "nu integral", "entierement nue", "entierement nu", "seins nus", "topless", "naked"),
-                m("nue", "denudee", "denude"),
+                s(
+                    "nudes", "nude", "nu integral", "entierement nue", "entierement nu", "seins nus", "topless", "naked",
+                    "nudity", "nude pic*", "nude photo*", "naked pic*", "naked girl*", "naked woman", "naked women", "naked men",
+                    "bare breasts", "nip slip", "nipslip", "nipple*", "boobs", "boobies", "tits", "titties", "titty",
+                    "toute nue", "tout nu", "nichon*", "tetons", "teton", "a poil", "full frontal", "upskirt", "see through",
+                    "braless", "no bra", "sans soutien gorge",
+                ),
+                m("nue", "denudee", "denude", "seins", "poitrine", "fesses", "booty", "butt", "ass", "cleavage", "decollete plongeant"),
             ),
             t(
                 "adulte.explicite.sexe", "Contenus sexuels explicites",
-                s("nsfw", "scene de sexe", "sexe explicite", "contenu explicite", "contenu pour adultes", "interdit aux moins de 18 ans", "camgirl*", "webcam sexe", "strip tease", "striptease"),
-                m("sexy", "coquin*", "coquine*", "torride*"),
+                s(
+                    "nsfw", "scene de sexe", "sexe explicite", "contenu explicite", "contenu pour adultes", "interdit aux moins de 18 ans",
+                    "camgirl*", "webcam sexe", "strip tease", "striptease",
+                    // Anglais
+                    "pussy", "pussies", "wet pussy", "tight pussy", "blowjob*", "blow job*", "handjob*", "hand job*", "footjob*",
+                    "titjob*", "titty fuck*", "rimjob*", "deepthroat*", "deep throat*", "cumshot*", "cum shot*", "creampie*",
+                    "cum", "cumming", "cums", "jizz", "gangbang*", "gang bang*", "orgy", "orgies", "threesome*", "anal sex",
+                    "milf*", "dilf*", "bdsm", "bondage", "shibari", "dominatrix", "femdom", "masturbat*", "jerk off", "jerking off",
+                    "orgasm*", "squirt", "squirting", "horny", "sexting", "dick pic*", "dickpic*", "cock", "cocks", "sex scene", "sex chat",
+                    "camshow*", "cam show*", "cam girl*", "stripper*", "strip club", "lap dance", "boner",
+                    "fingering", "69 position", "doggy style", "doggystyle", "cowgirl position", "missionary position",
+                    "sucking dick", "suck my", "ride me", "fuck me", "get fucked", "fucking hard", "hard fuck*",
+                    // Français
+                    "fellation*", "sodomie*", "sodomise*", "cunnilingus", "branlette*", "masturbation", "se masturbe*",
+                    "partouze*", "orgasme*", "ejacul*", "sperme", "levrette", "baiser fort", "se faire baiser", "chaudasse*",
+                    "salope*", "pipe baveuse", "tailler une pipe", "taille une pipe", "sucer une bite", "grosse bite",
+                    "chatte mouillee", "excitee comme", "plan a trois", "triolisme", "gode", "godes", "sexe anal",
+                    "position du missionnaire", "cul nu", "a quatre pattes nue",
+                ),
+                m(
+                    "sexy", "coquin*", "coquine*", "torride*", "dick", "bite", "chatte", "anal", "fetish*", "fetiche*",
+                    "kinky", "kink", "lewd", "naughty", "slut*", "whore*", "pute*", "baise*", "suce*", "sucer", "mouillee",
+                    "excitee", "excite", "bandant*", "chaud lapin", "cul",
+                ),
+                w("fuck*", "fucking", "sex", "sexe", "hot"),
+                // Associations : mots courants qui deviennent explicites ensemble.
+                all(STRONG, listOf("wet", "mouillee*", "trempee*"), listOf("pussy", "chatte", "culotte*", "panties", "lingerie")),
+                all(STRONG, listOf("big", "huge", "grosse*", "gros", "enorme*"), listOf("tits", "boobs", "cock", "dick", "bite", "seins", "ass", "cul")),
+                all(STRONG, listOf("suck*", "suce*", "sucer"), listOf("dick", "cock", "bite", "queue")),
             ),
             t(
                 "adulte.explicite.erotisme", "Érotisme et lingerie",
                 s("erotique*", "erotisme", "lingerie sexy", "boudoir"),
-                m("lingerie", "sensuel*", "sensuelle*", "deshabille*", "photo sexy", "photos sexy", "pose sexy"),
+                s("sexy lingerie", "lingerie haul", "lingerie try on", "try on haul", "see through lingerie", "boudoir shoot", "erotic*", "sensual photo*"),
+                m(
+                    "lingerie", "sensuel*", "sensuelle*", "deshabille*", "photo sexy", "photos sexy", "pose sexy", "thong", "string",
+                    "panties", "culotte", "petite culotte", "bikini", "seductive", "seductrice", "provocante", "sexy pics", "spicy",
+                ),
             ),
         ),
         sub(
             "adulte.anime", "Animés et mangas pour adultes",
             t(
                 "adulte.anime.hentai", "Hentai",
-                s("hentai", "nhentai", "hanime", "rule 34", "rule34", "r34", "doujin*", "ahegao", "futanari"),
+                s(
+                    "hentai", "nhentai", "hanime", "rule 34", "rule34", "r34", "doujin*", "ahegao", "futanari", "futa",
+                    "paizuri", "eroge", "h manga", "hentai manga", "hentai anime", "lewd anime", "anime porn", "cartoon porn",
+                    "animated porn", "porn comic*", "sex comic*", "tentacle porn", "hentaihaven", "gelbooru", "danbooru", "e621",
+                ),
+                m("tentacle*", "oppai", "ero"),
             ),
             t(
                 "adulte.anime.ecchi", "Ecchi",
@@ -838,11 +893,16 @@ private fun catAdulte(): Category = Category(
             "adulte.sexualite", "Sexualité et rencontres",
             t(
                 "adulte.sexualite.rencontres", "Rencontres pour adultes",
-                s("plan cul", "plans cul", "sexfriend*", "sex friend*", "rencontre coquine", "rencontres coquines", "rencontres adultes", "rencontre adulte", "escort*", "libertin*", "echangisme", "echangiste*"),
+                s(
+                    "plan cul", "plans cul", "sexfriend*", "sex friend*", "rencontre coquine", "rencontres coquines", "rencontres adultes",
+                    "rencontre adulte", "escort*", "libertin*", "echangisme", "echangiste*",
+                    "hookup*", "hook up", "friends with benefits", "fwb", "sugar daddy", "sugar baby", "booty call", "one night stand",
+                    "nsa fun", "swinger*", "adult dating", "sexy singles", "local singles", "dtf",
+                ),
             ),
             t(
                 "adulte.sexualite.sextoys", "Sextoys et accessoires",
-                s("sextoy*", "sex toy*", "vibromasseur*", "godemiche*", "plug anal", "lovehoney"),
+                s("sextoy*", "sex toy*", "vibromasseur*", "godemiche*", "plug anal", "lovehoney", "vibrator*", "dildo*", "butt plug*", "fleshlight", "strap on", "strapon"),
             ),
         ),
     ),

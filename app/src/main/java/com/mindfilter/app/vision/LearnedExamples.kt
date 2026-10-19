@@ -86,6 +86,17 @@ object LearnedExamples {
         }
     }
 
+    /** Ajout groupé (import d'un dossier) : un seul enregistrement pour tout le lot. */
+    fun addAll(ctx: Context, theme: String, safe: Boolean, vectors: List<FloatArray>) {
+        if (vectors.isEmpty()) return
+        ensureLoaded(ctx)
+        synchronized(this) {
+            for (v in vectors) examples.add(Example(if (safe) "" else theme, safe, v, builtIn = false))
+            saveLocal(ctx)
+            revision++
+        }
+    }
+
     /** Efface les exemples locaux d'un thème ("" = exemples « sans problème »), ou tous si null. */
     fun clearLocal(ctx: Context, theme: String? = null) {
         ensureLoaded(ctx)
@@ -169,7 +180,7 @@ object LearnedExamples {
                 JSONObject()
                     .put("theme", e.theme)
                     .put("safe", e.safe)
-                    .put("v", encode(e.vector)),
+                    .put("h", encodeHalf(e.vector)),
             )
         }
         val version = try {
@@ -194,10 +205,52 @@ object LearnedExamples {
         val out = ArrayList<Example>(arr.length())
         for (i in 0 until arr.length()) {
             val e = arr.getJSONObject(i)
-            val v = decode(e.optString("v")) ?: continue
+            val v = (if (e.has("h")) decodeHalf(e.optString("h")) else decode(e.optString("v"))) ?: continue
             out.add(Example(e.optString("theme"), e.optBoolean("safe"), v, builtIn))
         }
         return out
+    }
+
+    // Stockage compact : nombres « demi-précision » (2 octets au lieu de 4), largement assez
+    // précis pour comparer des empreintes. Les anciens fichiers (4 octets, champ "v") restent lisibles.
+    private fun encodeHalf(v: FloatArray): String {
+        val b = ByteBuffer.allocate(v.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (x in v) b.putShort(toHalf(x))
+        return Base64.getEncoder().encodeToString(b.array())
+    }
+
+    private fun decodeHalf(s: String): FloatArray? = try {
+        val b = ByteBuffer.wrap(Base64.getDecoder().decode(s)).order(ByteOrder.LITTLE_ENDIAN)
+        FloatArray(b.remaining() / 2) { fromHalf(b.getShort()) }
+    } catch (_: Exception) {
+        null
+    }
+
+    internal fun toHalf(f: Float): Short {
+        val bits = java.lang.Float.floatToIntBits(f)
+        val sign = (bits ushr 16) and 0x8000
+        val abs = bits and 0x7FFFFFFF
+        val v = abs + 0x1000 // arrondi
+        if (v >= 0x47800000) {
+            // Trop grand (ou infini) : plus grande valeur possible.
+            return (sign or 0x7BFF).toShort()
+        }
+        if (v >= 0x38800000) return (sign or ((v - 0x38000000) ushr 13)).toShort()
+        if (v < 0x33000000) return sign.toShort()
+        val e = abs ushr 23
+        return (sign or ((((abs and 0x7FFFFF) or 0x800000) + (0x800000 ushr (e - 102))) ushr (126 - e))).toShort()
+    }
+
+    internal fun fromHalf(h: Short): Float {
+        val x = h.toInt() and 0xFFFF
+        val sign = if (x and 0x8000 != 0) -1f else 1f
+        val exp = (x ushr 10) and 0x1F
+        val mant = x and 0x3FF
+        return when (exp) {
+            0 -> sign * Math.scalb(mant.toFloat(), -24)
+            31 -> sign * Float.MAX_VALUE
+            else -> sign * Math.scalb(1f + mant / 1024f, exp - 15)
+        }
     }
 
     private fun encode(v: FloatArray): String {

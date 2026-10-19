@@ -47,6 +47,11 @@ class ImageAnalyzer(
     private var objects: ObjectRecognizer? = null
     private var reader: TextReader? = null
     private var embedder: ImageEmbedder? = null
+    private var nsfw: NsfwDetector? = null
+    @Volatile var restrictionLevel = 5
+    /** Hauteur à laquelle chaque image a été jugée « sans problème » (pour la rejuger si elle
+     *  n'était qu'en partie visible). */
+    private val cleanHeights = HashMap<String, Int>()
     private var learnedRevision = -1
 
     /** Résultat par image : libellé du thème, ou "" si l'image est sans problème. */
@@ -62,10 +67,18 @@ class ImageAnalyzer(
 
     private fun known(key: String) = synchronized(verdicts) { verdicts.containsKey(key) }
 
+    /** À (re)analyser : jamais vue, ou jugée sans problème alors qu'elle était peu visible. */
+    private fun needsAnalysis(c: Candidate): Boolean = synchronized(verdicts) {
+        val v = verdicts[c.key] ?: return@synchronized true
+        if (v.isNotEmpty()) return@synchronized false
+        val h = cleanHeights[c.key] ?: return@synchronized false
+        c.bounds.height() > h * 13 / 10
+    }
+
     /** Nouvelles images visibles : on en analyse quelques-unes à la prochaine capture. */
     fun request(candidates: List<Candidate>) {
         VisionStats.candidates = candidates.size
-        val todo = candidates.filter { !known(it.key) }
+        val todo = candidates.filter { needsAnalysis(it) }
         if (todo.isEmpty()) return
         pending = todo
         if (!busy) {
@@ -120,11 +133,14 @@ class ImageAnalyzer(
         }
         VisionStats.shotsOk++
         var hit = false
+        var list0: List<Candidate> = emptyList()
         try {
             if (objects == null) objects = ObjectRecognizer(service)
             if (reader == null) reader = TextReader(service)
             if (embedder == null) embedder = ImageEmbedder(service)
+            if (nsfw == null) nsfw = NsfwDetector(service)
             VisionStats.models = listOf(
+                "adultes" to (nsfw?.available == true),
                 "empreintes" to (embedder?.available == true),
                 "objets" to (objects?.available == true),
                 "texte" to (reader?.available == true),
@@ -137,9 +153,10 @@ class ImageAnalyzer(
             }
             val masks = maskedAreas
             // Les plus grandes images d'abord, 3 au plus par capture.
-            val list = pending.filter { !known(it.key) }
+            val list = pending.filter { needsAnalysis(it) }
                 .sortedByDescending { it.bounds.width() * it.bounds.height() }
                 .take(3)
+            list0 = list
             for (c in list) {
                 val r = Rect()
                 try {
@@ -168,7 +185,10 @@ class ImageAnalyzer(
                 val cached = synchronized(byHash) { byHash[hash] }
                 val label = cached ?: analyze(crop).also { synchronized(byHash) { byHash[hash] = it } }
                 crop.recycle()
-                synchronized(verdicts) { verdicts[c.key] = label }
+                synchronized(verdicts) {
+                    verdicts[c.key] = label
+                    if (label.isEmpty()) cleanHeights[c.key] = r.height() else cleanHeights.remove(c.key)
+                }
                 VisionStats.analyzed++
                 if (label.isNotEmpty()) {
                     hit = true
@@ -183,20 +203,39 @@ class ImageAnalyzer(
         }
         if (hit) onNewHit()
         // D'autres images attendent : nouvelle capture dans un instant.
-        val rest = pending.filter { !known(it.key) }
+        val rest = pending.filter { needsAnalysis(it) && it !in list0 }
         if (rest.isNotEmpty()) request(rest)
     }
 
     private fun analyze(img: Bitmap): String {
         val themes = enabledThemes
-        // 0. Ressemblance avec les exemples appris (mode développeur / apprentissage intégré)
-        embedder?.takeIf { it.available }?.embed(img)?.let { v ->
-            LearnedExamples.scores(v).firstOrNull()?.let { (t, sim) ->
-                VisionStats.lastBest = "${if (t.isEmpty()) "Sans problème" else com.mindfilter.app.data.TaxonomyIndex.themeName(t)} ${(sim * 100).toInt()} %"
+        // 0. Détecteur de contenus pour adultes (si un thème « adultes » est coché)
+        if (themes.any { it.startsWith("adulte.") }) {
+            val sc = nsfw?.takeIf { it.available }?.score(img) ?: -1f
+            if (sc >= 0f) {
+                VisionStats.lastNsfw = "${(sc * 100).toInt()} %"
+                if (sc >= NsfwDetector.thresholdFor(restrictionLevel)) return "Contenu pour adultes (image)"
             }
-            LearnedExamples.match(v, themes)?.let { m ->
-                return "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)"
+        }
+        // 1. Ressemblance avec les exemples appris : image entière ET son centre (une image
+        //    affichée dans une appli est souvent recadrée).
+        embedder?.takeIf { it.available }?.let { emb ->
+            val vectors = ArrayList<FloatArray>(2)
+            emb.embed(img)?.let { vectors.add(it) }
+            if (img.width >= 60 && img.height >= 60) {
+                val center = Bitmap.createBitmap(img, img.width / 10, img.height / 10, img.width * 8 / 10, img.height * 8 / 10)
+                emb.embed(center)?.let { vectors.add(it) }
+                if (center !== img) center.recycle()
             }
+            var best: LearnedExamples.Match? = null
+            for (v in vectors) {
+                LearnedExamples.scores(v).firstOrNull()?.let { (t, sim) ->
+                    VisionStats.lastBest = "${if (t.isEmpty()) "Sans problème" else com.mindfilter.app.data.TaxonomyIndex.themeName(t)} ${(sim * 100).toInt()} %"
+                }
+                val m = LearnedExamples.match(v, themes)
+                if (m != null && (best == null || m.similarity > best.similarity)) best = m
+            }
+            best?.let { m -> return "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)" }
         }
         // 1. Objets reconnus
         objects?.takeIf { it.available }?.recognize(img)?.forEach { (name, p) ->
@@ -231,7 +270,10 @@ class ImageAnalyzer(
     private fun luma(p: Int) = ((p shr 16) and 0xFF) * 299 + ((p shr 8) and 0xFF) * 587 + (p and 0xFF) * 114
 
     fun reset() {
-        synchronized(verdicts) { verdicts.clear() }
+        synchronized(verdicts) {
+            verdicts.clear()
+            cleanHeights.clear()
+        }
         synchronized(byHash) { byHash.clear() }
     }
 
@@ -240,6 +282,7 @@ class ImageAnalyzer(
             objects?.close()
             reader?.close()
             embedder?.close()
+            nsfw?.close()
         }
         thread.quitSafely()
     }

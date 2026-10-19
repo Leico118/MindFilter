@@ -19,8 +19,8 @@ android {
         applicationId = "com.mindfilter.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 38
-        versionName = "0.6.4"
+        versionCode = 39
+        versionName = "0.7.0"
     }
 
     signingConfigs {
@@ -94,6 +94,11 @@ val downloadVisionModels by tasks.registering {
         val emb = File(dir, "vision/embedder.tflite")
         fetch("https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_large/float32/latest/mobilenet_v3_large.tflite", emb)
         fetch("https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/latest/mobilenet_v3_small.tflite", emb)
+        // Détecteur de nudité / pornographie (Yahoo open_nsfw, version Android de devzwy).
+        fetch(
+            "https://raw.githubusercontent.com/devzwy/open_nsfw_android/a1b49e0cf4d28c2f67bf60a87005a7c220cde487/app/src/main/assets/nsfw.tflite",
+            File(dir, "vision/nsfw.tflite"),
+        )
         val zip = File(temporaryDir, "mobilenet.zip")
         fetch("https://storage.googleapis.com/download.tensorflow.org/models/tflite/mobilenet_v1_1.0_224_quant_and_labels.zip", zip)
         if (zip.exists()) {

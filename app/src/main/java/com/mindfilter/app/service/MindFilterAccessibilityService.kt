@@ -236,6 +236,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (vision != null && images.isNotEmpty()) {
             vision.classifier = c
             vision.enabledThemes = s.enabledThemes
+            vision.restrictionLevel = s.restrictionLevel
             vision.maskedAreas = targets.map { t -> Rect(t.rect).also { r -> if (!r.intersect(t.clip)) r.setEmpty() } }
             vision.request(images.map { com.mindfilter.app.vision.ImageAnalyzer.Candidate(it.key, it.node, it.bounds, it.zone) })
         }
