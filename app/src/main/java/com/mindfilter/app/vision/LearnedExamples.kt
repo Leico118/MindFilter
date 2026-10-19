@@ -55,7 +55,15 @@ object LearnedExamples {
             }
             try {
                 val f = File(app.filesDir, LOCAL_FILE)
-                if (f.exists()) examples.addAll(parse(f.readText(), builtIn = false))
+                if (f.exists()) {
+                    // Les exemples déjà intégrés à l'appli (fichier envoyé puis ajouté à une mise à
+                    // jour) ne sont pas comptés deux fois.
+                    val builtIns = examples.toList()
+                    val local = parse(f.readText(), builtIn = false).filter { l ->
+                        builtIns.none { b -> b.theme == l.theme && b.safe == l.safe && ImageEmbedder.similarity(b.vector, l.vector) > 0.9999f }
+                    }
+                    examples.addAll(local)
+                }
             } catch (_: Exception) {
             }
             loaded = true
