@@ -21,6 +21,8 @@ class SNode(
     var offscreen: Boolean = false
     /** Une image de ce bloc a été reconnue comme à masquer (option « Analyse des images »). */
     var flagLabel: String? = null
+    /** Cet élément EST une image reconnue comme à masquer (masquée en plus de sa publication). */
+    var imageFlag: String? = null
     /** Ce nœud ou un de ses descendants est une liste qui défile. */
     var hasScrollable: Boolean = scrollable
 }
@@ -120,7 +122,29 @@ object ScreenScanner {
         val out = ArrayList<MaskTarget>()
         val usedKeys = HashSet<String>()
         visit(root, screen, classifier, maxHeight, out, usedKeys)
+        addFlaggedImages(root, screen, out, usedKeys)
         return out
+    }
+
+    /**
+     * Chaque image reconnue est aussi masquée elle-même : même si l'appli range l'image à côté
+     * du bloc de texte (et non dedans), elle est couverte.
+     */
+    private fun addFlaggedImages(n: SNode, clip: Rect, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {
+        val childClip = Rect(clip)
+        if (n.scrollable && !childClip.intersect(n.bounds)) return
+        val label = n.imageFlag
+        if (label != null) {
+            val visible = Rect(n.bounds)
+            if (visible.intersect(clip)) {
+                val covered = out.any { t ->
+                    val r = Rect(t.rect)
+                    r.intersect(t.clip) && r.contains(visible.centerX(), visible.centerY())
+                }
+                if (!covered) add(n, clip, label, out, usedKeys)
+            }
+        }
+        for (c in n.children) addFlaggedImages(c, childClip, out, usedKeys)
     }
 
     /**
@@ -220,9 +244,18 @@ object ScreenScanner {
                 n.children.none { it.fullText.isNotBlank() && !it.className.lowercase().contains("image") } &&
                 n.bounds.width() >= minW && n.bounds.height() >= minH
             if (looksLikeImage && info != null) {
-                val key = "${info.hashCode()}|${ctx.hashCode()}"
+                // Identité STABLE de l'image : l'élément qui l'affiche + sa description (différente
+                // pour chaque photo sur Facebook) + sa largeur. Le texte de la publication n'en fait
+                // plus partie : il change pendant le défilement (en-tête qui sort de l'écran…), ce
+                // qui faisait disparaître puis réapparaître les masques.
+                val key = "${info.hashCode()}|${n.ownText.take(80).hashCode()}|${n.bounds.width() / 16}"
                 val label = lookup(key)
-                if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds)))
+                if (label != null) {
+                    flag = label
+                    n.imageFlag = label
+                } else {
+                    out.add(ImageCandidate(key, info, Rect(n.bounds)))
+                }
             }
             for (c in n.children) {
                 val f = walk(c, ctx)
@@ -234,7 +267,7 @@ object ScreenScanner {
             if (isPost && flag == null && out.size == before && info != null && !n.offscreen &&
                 n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10
             ) {
-                val key = "zone|${info.hashCode()}|${ctx.hashCode()}"
+                val key = "zone|${info.hashCode()}|${n.bounds.width() / 16}"
                 val label = lookup(key)
                 if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds), zone = true))
             }

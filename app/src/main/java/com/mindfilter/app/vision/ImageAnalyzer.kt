@@ -152,10 +152,10 @@ class ImageAnalyzer(
                 reset()
             }
             val masks = maskedAreas
-            // Les plus grandes images d'abord, 3 au plus par capture.
+            // Les plus grandes images d'abord, 6 au plus par capture (grilles de photos).
             val list = pending.filter { needsAnalysis(it) }
                 .sortedByDescending { it.bounds.width() * it.bounds.height() }
-                .take(3)
+                .take(6)
             list0 = list
             for (c in list) {
                 val r = Rect()
