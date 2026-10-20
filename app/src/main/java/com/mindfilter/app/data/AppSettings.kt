@@ -128,6 +128,8 @@ data class SettingsState(
     val autoActivation: Boolean = true,
     /** Analyse des images (reconnaissance d'objets + lecture du texte), désactivée par défaut. */
     val imageAnalysis: Boolean = false,
+    /** Cacher les nouvelles images le temps de leur analyse (Android 14 et plus). */
+    val imagePrecaution: Boolean = true,
     /** Mode développeur (apprentissage des images), déverrouillé en touchant 7 fois la version. */
     val devMode: Boolean = false,
     val customFilters: List<CustomFilter> = emptyList(),
@@ -219,6 +221,7 @@ object AppSettings {
             touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
             imageAnalysis = prefs.getBoolean("imageAnalysis", d.imageAnalysis),
+            imagePrecaution = prefs.getBoolean("imagePrecaution", d.imagePrecaution),
             devMode = prefs.getBoolean("devMode", d.devMode),
             customFilters = parseFilters(prefs.getString("customFilters", null)),
             exceptions = parseStrings(prefs.getString("exceptions", null)),
@@ -241,6 +244,7 @@ object AppSettings {
             .putString("touchMode", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
             .putBoolean("imageAnalysis", s.imageAnalysis)
+            .putBoolean("imagePrecaution", s.imagePrecaution)
             .putBoolean("devMode", s.devMode)
             .putString("customFilters", serializeFilters(s.customFilters))
             .putString("exceptions", JSONArray(s.exceptions).toString())

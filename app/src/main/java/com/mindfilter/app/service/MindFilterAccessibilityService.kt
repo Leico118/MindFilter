@@ -220,7 +220,11 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val vision = visionFor(s)
         val images = if (vision != null) {
             try {
-                ScreenScanner.markImages(snap, screen, maxHeight) { vision.labelFor(it) }
+                ScreenScanner.markImages(
+                    snap, screen, maxHeight,
+                    lookup = { vision.labelFor(it) },
+                    precaution = { s.imagePrecaution && vision.precautionFor(it) },
+                )
             } catch (e: Exception) {
                 emptyList()
             }

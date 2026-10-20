@@ -224,7 +224,16 @@ object ScreenScanner {
      * l'affiche + le début du texte de sa publication (auteur, première ligne) : si l'appli
      * réutilise le cadre pour une autre publication, ce n'est plus la même clé.
      */
-    fun markImages(root: SNode, screen: Rect, maxHeight: Int, lookup: (String) -> String?): List<ImageCandidate> {
+    const val PENDING_LABEL = "Analyse de l'image…"
+
+    fun markImages(
+        root: SNode,
+        screen: Rect,
+        maxHeight: Int,
+        lookup: (String) -> String?,
+        /** Cacher cette image (pas encore jugée) pendant son analyse ? */
+        precaution: (String) -> Boolean = { false },
+    ): List<ImageCandidate> {
         val out = ArrayList<ImageCandidate>()
         val minW = screen.width() * 3 / 10
         val minH = screen.width() / 5
@@ -255,6 +264,8 @@ object ScreenScanner {
                     n.imageFlag = label
                 } else {
                     out.add(ImageCandidate(key, info, Rect(n.bounds)))
+                    // Image encore inconnue : cachée le temps de l'analyse (sans marquer la publication).
+                    if (precaution(key)) n.imageFlag = PENDING_LABEL
                 }
             }
             for (c in n.children) {
