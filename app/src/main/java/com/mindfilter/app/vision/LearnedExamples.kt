@@ -36,18 +36,28 @@ object LearnedExamples {
         private set
 
     /** Ressemblance minimale pour masquer (réglable dans le mode développeur). */
-    @Volatile var threshold = 0.75f
+    @Volatile var threshold = DEFAULT_THRESHOLD
         private set
 
     /** Écart minimal avec l'exemple « sans problème » le plus proche. */
     const val MARGIN = 0.02f
+
+    /** Nombre d'exemples les plus proches pris en compte pour chaque thème. */
+    private const val K = 5
+
+    /**
+     * Seuil par défaut. Mesuré sur 1958 images apprises : une nouvelle image du même genre
+     * ressemble en moyenne à ~54 % à ses 5 exemples les plus proches (alors que deux images
+     * sans rapport ne dépassent pas ~10 %).
+     */
+    const val DEFAULT_THRESHOLD = 0.50f
 
     fun ensureLoaded(ctx: Context) {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
             val app = ctx.applicationContext
-            threshold = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("threshold", 0.75f)
+            threshold = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("threshold2", DEFAULT_THRESHOLD)
             try {
                 app.assets.open("vision/learned.json").use { parse(it.bufferedReader().readText(), builtIn = true) }
                     .let { examples.addAll(it) }
@@ -58,10 +68,9 @@ object LearnedExamples {
                 if (f.exists()) {
                     // Les exemples déjà intégrés à l'appli (fichier envoyé puis ajouté à une mise à
                     // jour) ne sont pas comptés deux fois.
-                    val builtIns = examples.toList()
-                    val local = parse(f.readText(), builtIn = false).filter { l ->
-                        builtIns.none { b -> b.theme == l.theme && b.safe == l.safe && ImageEmbedder.similarity(b.vector, l.vector) > 0.9999f }
-                    }
+                    // (comparaison rapide par « signature » : des milliers d'exemples à vérifier)
+                    val builtIns = examples.mapTo(HashSet()) { signature(it) }
+                    val local = parse(f.readText(), builtIn = false).filter { l -> signature(l) !in builtIns }
                     examples.addAll(local)
                 }
             } catch (_: Exception) {
@@ -72,8 +81,8 @@ object LearnedExamples {
     }
 
     fun setThreshold(ctx: Context, value: Float) {
-        threshold = value.coerceIn(0.60f, 0.95f)
-        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putFloat("threshold", threshold).apply()
+        threshold = value.coerceIn(0.35f, 0.95f)
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putFloat("threshold2", threshold).apply()
         revision++
     }
 
@@ -129,13 +138,42 @@ object LearnedExamples {
     /** Meilleure ressemblance pour chaque thème (outil de test du mode développeur). */
     fun scores(vector: FloatArray): List<Pair<String, Float>> {
         val snapshot = synchronized(this) { examples.toList() }
-        val best = HashMap<String, Float>()
-        for (e in snapshot) {
+        return themeScores(snapshot, vector).entries.sortedByDescending { it.value }.map { it.key to it.value }
+    }
+
+    /**
+     * Score de chaque thème = moyenne des 5 exemples les plus ressemblants (ou moins s'il y en a
+     * moins). Plus fiable qu'un seul exemple : une image doit ressembler à PLUSIEURS exemples.
+     * Clé "" = exemples « sans problème ».
+     */
+    internal fun themeScores(list: List<Example>, vector: FloatArray): Map<String, Float> {
+        val tops = HashMap<String, FloatArray>()
+        val counts = HashMap<String, Int>()
+        for (e in list) {
             if (e.vector.size != vector.size) continue
             val s = ImageEmbedder.similarity(e.vector, vector)
-            if (s > (best[e.theme] ?: -1f)) best[e.theme] = s
+            val key = if (e.safe) "" else e.theme
+            val top = tops.getOrPut(key) { FloatArray(K) { -1f } }
+            counts[key] = (counts[key] ?: 0) + 1
+            // Insère s dans les K meilleurs (tableau trié décroissant)
+            if (s > top[K - 1]) {
+                var i = K - 1
+                while (i > 0 && top[i - 1] < s) { top[i] = top[i - 1]; i-- }
+                top[i] = s
+            }
         }
-        return best.entries.sortedByDescending { it.value }.map { it.key to it.value }
+        return tops.mapValues { (key, top) ->
+            val n = minOf(K, counts[key] ?: 0).coerceAtLeast(1)
+            var sum = 0f
+            for (i in 0 until n) sum += top[i]
+            sum / n
+        }
+    }
+
+    private fun signature(e: Example): String {
+        val sb = StringBuilder(e.theme).append(e.safe)
+        for (i in 0 until minOf(12, e.vector.size)) sb.append('|').append(Math.round(e.vector[i] * 200))
+        return sb.toString()
     }
 
     /** Fichier à envoyer pour intégrer cet apprentissage à une mise à jour (exemples locaux). */
@@ -148,22 +186,11 @@ object LearnedExamples {
     // --- interne -----------------------------------------------------------------------------
 
     internal fun bestMatch(list: List<Example>, vector: FloatArray, enabled: Set<String>, threshold: Float): Match? {
-        var bestTheme: String? = null
-        var bestPos = -1f
-        var bestSafe = -1f
-        for (e in list) {
-            if (e.vector.size != vector.size) continue
-            val s = ImageEmbedder.similarity(e.vector, vector)
-            if (e.safe) {
-                if (s > bestSafe) bestSafe = s
-            } else if (e.theme in enabled && s > bestPos) {
-                bestPos = s
-                bestTheme = e.theme
-            }
-        }
-        val theme = bestTheme ?: return null
-        if (bestPos < threshold || bestPos < bestSafe + MARGIN) return null
-        return Match(theme, bestPos, bestSafe)
+        val scores = themeScores(list, vector)
+        val safe = scores[""] ?: -1f
+        val best = scores.entries.filter { it.key.isNotEmpty() && it.key in enabled }.maxByOrNull { it.value } ?: return null
+        if (best.value < threshold || best.value < safe + MARGIN) return null
+        return Match(best.key, best.value, safe)
     }
 
     private fun saveLocal(ctx: Context) {

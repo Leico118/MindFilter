@@ -479,7 +479,7 @@ fun LearningScreen(onBack: () -> Unit) {
                     value = threshold,
                     onValueChange = { threshold = it },
                     onValueChangeFinished = { LearnedExamples.setThreshold(app, threshold) },
-                    valueRange = 0.60f..0.95f,
+                    valueRange = 0.35f..0.90f,
                     colors = SliderDefaults.colors(thumbColor = g.accent, activeTrackColor = g.accent),
                 )
             }
