@@ -405,7 +405,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
     private fun startExitWatch() {
         if (exitWatchRunning || !::workerHandler.isInitialized) return
         exitWatchRunning = true
-        workerHandler.postDelayed(exitWatch, 400)
+        workerHandler.postDelayed(exitWatch, 200)
     }
 
     private val exitWatch: Runnable = object : Runnable {
@@ -424,7 +424,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 exitWatchRunning = false
                 clearMasks()
             } else {
-                workerHandler.postDelayed(this, 400)
+                workerHandler.postDelayed(this, 200)
             }
         }
     }

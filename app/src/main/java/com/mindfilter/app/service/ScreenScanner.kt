@@ -364,6 +364,30 @@ object ScreenScanner {
         val out = ArrayList<ImageCandidate>()
         val minW = screen.width() * 3 / 10
         val minH = screen.width() / 5
+        // Tous les textes visibles de l'écran : sert à reconnaître un grand calque vide posé
+        // par-dessus la page (recherche Facebook…), qui ressemblait à une image géante. Son
+        // analyse lisait alors le texte de la page et masquait tout l'écran.
+        val texts = ArrayList<SNode>()
+        fun gather(n: SNode) {
+            if (!n.offscreen && n.ownText.isNotBlank()) texts.add(n)
+            n.children.forEach { gather(it) }
+        }
+        gather(root)
+        fun isOverlay(n: SNode): Boolean {
+            if (n.bounds.height() < screen.height() * 3 / 10) return false
+            val inside = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<SNode, Boolean>())
+            fun mark(x: SNode) { inside.add(x); x.children.forEach { mark(it) } }
+            mark(n)
+            var count = 0
+            for (t in texts) {
+                if (t in inside) continue
+                if (n.bounds.contains(t.bounds.centerX(), t.bounds.centerY())) {
+                    count++
+                    if (count >= 4) return true
+                }
+            }
+            return false
+        }
         fun walk(n: SNode, context: String): String? {
             val isPost = context.isEmpty() && n.bounds.height() <= maxHeight && n.fullText.isNotBlank()
             val ctx = if (isPost) n.fullText.take(40) else context
@@ -378,7 +402,8 @@ object ScreenScanner {
             val looksLikeImage = info != null && !n.offscreen && !textual &&
                 ("image" in cls || n.ownText.length <= 250) &&
                 n.children.none { it.fullText.isNotBlank() && !it.className.lowercase().contains("image") } &&
-                n.bounds.width() >= minW && n.bounds.height() >= minH
+                n.bounds.width() >= minW && n.bounds.height() >= minH &&
+                ("image" in cls || !isOverlay(n))
             // Vidéo : lecteur reconnu par son type, ou grand bloc décrit comme une vidéo avec
             // seulement de courts boutons (son, durée…) par-dessus.
             val big = n.bounds.width() >= minW && n.bounds.height() >= minH
