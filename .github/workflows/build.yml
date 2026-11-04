@@ -12,13 +12,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - name: Extraire les sources
         run: |
-          if [ -f MindFilter-sources.zip ]; then
-            unzip -o -q MindFilter-sources.zip && git rm -q MindFilter-sources.zip
+          # Accepte tout fichier « MindFilter….zip » (MindFilter-0.7.6.zip, MindFilter-sources (1).zip…).
+          # S'il y en a plusieurs, on prend celui envoyé le plus récemment.
+          shopt -s nullglob
+          zips=(MindFilter*.zip)
+          if [ ${#zips[@]} -gt 0 ]; then
+            newest=""; best=-1
+            for z in "${zips[@]}"; do
+              t=$(git log -1 --format=%ct -- "$z"); t=${t:-0}
+              if [ "$t" -ge "$best" ]; then best=$t; newest="$z"; fi
+            done
+            echo "Archive utilisée : $newest"
+            unzip -o -q "$newest"
+            git rm -q -- "${zips[@]}"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A && git commit -q -m "Sources de MindFilter extraites"
+            git add -A && git commit -q -m "Sources de MindFilter extraites ($newest)"
             git pull -q --rebase && git push
           fi
       - uses: actions/setup-java@v5
