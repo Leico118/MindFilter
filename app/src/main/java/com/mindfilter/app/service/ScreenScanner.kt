@@ -345,8 +345,11 @@ object ScreenScanner {
             // Certaines applis (Reddit, applis en Jetpack Compose…) ne décrivent pas leurs images
             // comme des éléments séparés. Si une publication assez grande ne contient aucune image
             // repérée, on la propose entière : l'analyse cherchera l'image dans la capture.
+            // Jamais pour une liste de lignes (recherche, suggestions…) ni un bloc qui défile ou
+            // occupe plus de 60 % de l'écran : une petite vignette y suffisait à tout masquer.
             if (isPost && flag == null && out.size == before && info != null && !n.offscreen &&
-                n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10
+                n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10 &&
+                n.bounds.height() <= screen.height() * 6 / 10 && !n.hasScrollable && findRowList(n) == null
             ) {
                 val key = "zone|${info.hashCode()}|${n.bounds.width() / 16}"
                 val label = lookup(key)

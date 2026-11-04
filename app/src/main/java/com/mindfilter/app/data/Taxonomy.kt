@@ -816,7 +816,10 @@ private fun catAdulte(): Category = Category(
                     "toute nue", "tout nu", "nichon*", "tetons", "teton", "a poil", "full frontal", "upskirt", "see through",
                     "braless", "no bra", "sans soutien gorge",
                 ),
-                m("nue", "denudee", "denude", "seins", "poitrine", "fesses", "booty", "butt", "ass", "cleavage", "decollete plongeant"),
+                m("nue", "denudee", "denude", "seins", "poitrine", "fesses", "booty", "cleavage", "decollete plongeant"),
+                // « ass » / « butt » seuls sont surtout de l'argot anglais courant (« sucks ass »,
+                // « badass », « pain in the ass ») : ils ne comptent qu'avec d'autres indices.
+                w("ass", "butt"),
             ),
             t(
                 "adulte.explicite.sexe", "Contenus sexuels explicites",

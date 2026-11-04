@@ -233,7 +233,9 @@ class ImageAnalyzer(
                 var crop = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
                 if (c.zone) {
                     // Publication entière : on y cherche la bande qui contient l'image.
+                    // Seule une vraie image de publication compte (grande bande), pas une vignette.
                     val band = ImageFinder.findImageBand(crop)
+                        ?.takeIf { it.height() * 100 >= crop.height * 35 && it.width() * 10 >= crop.width * 6 }
                     if (band == null) {
                         crop.recycle()
                         setVerdict(c, "", r.height())

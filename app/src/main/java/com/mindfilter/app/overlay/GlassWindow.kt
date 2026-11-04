@@ -20,7 +20,7 @@ import androidx.annotation.RequiresApi
  * Elle laisse toujours passer les gestes (les boucliers du mode « Bloqué » s'en chargent).
  */
 @RequiresApi(Build.VERSION_CODES.S)
-class GlassWindow(context: Context, dark: Boolean) {
+class GlassWindow(context: Context, dark: Boolean, parentToken: android.os.IBinder) {
     private val dp = context.resources.displayMetrics.density
     private val view = MaskView(ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault), dark, NO_RELAY).apply {
         setGlass(true)
@@ -31,7 +31,10 @@ class GlassWindow(context: Context, dark: Boolean) {
 
     init {
         val w = dialog.window!!
-        w.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        // Fenêtre « fille » de la fenêtre des masques de MindFilter (qui, elle, a le droit de
+        // s'afficher par-dessus les autres applis) : sans ce rattachement, Android refuse la
+        // fenêtre floutée et les masques restaient opaques.
+        w.setType(WindowManager.LayoutParams.TYPE_APPLICATION_PANEL)
         w.addFlags(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -56,6 +59,7 @@ class GlassWindow(context: Context, dark: Boolean) {
         lp.fitInsetsTypes = 0
         lp.windowAnimations = 0
         lp.title = "MindFilterGlass"
+        lp.token = parentToken
     }
 
     fun setDark(value: Boolean) = view.setDark(value)
@@ -76,7 +80,8 @@ class GlassWindow(context: Context, dark: Boolean) {
                 shown = true
             }
             true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            lastError = t.toString().take(300)
             false
         }
     }
@@ -98,6 +103,9 @@ class GlassWindow(context: Context, dark: Boolean) {
             override fun onDragMove(p: TouchPoint) {}
             override fun onDragEnd(last: TouchPoint) {}
         }
+
+        /** Dernière raison d'échec du flou (affichée dans les Réglages pour comprendre). */
+        @Volatile var lastError: String? = null
 
         /** Le téléphone sait-il flouter derrière une fenêtre (désactivé en économie d'énergie…) ? */
         fun supported(context: Context): Boolean {

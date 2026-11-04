@@ -237,10 +237,14 @@ fun SettingsScreen(resumeTick: Int) {
                             "Masques opaques dans la couleur de votre choix, avec un léger dégradé. Choisissez une teinte toute prête ou faites glisser le curseur sur l'arc-en-ciel."
                         s.maskStyle != MaskStyle.GLASS ->
                             "Masques opaques : le contenu dessous est totalement caché. « Verre » le floute très fortement à la place : on devine les couleurs, mais rien n'est lisible."
+                        glassOk && com.mindfilter.app.overlay.GlassWindow.lastError != null ->
+                            "Le flou n'a pas pu s'afficher sur ce téléphone, les masques sont restés opaques. Raison : " +
+                                com.mindfilter.app.overlay.GlassWindow.lastError + ". Si l'économie d'énergie est activée, coupez-la, " +
+                                "puis redémarrez le service MindFilter (Accessibilité → MindFilter → désactiver / réactiver)."
                         glassOk ->
                             "Verre : le contenu dessous est très fortement flouté, on devine seulement les couleurs. Chaque masque est une petite fenêtre floutée : le suivi pendant le défilement peut être un peu moins fluide qu'en opaque."
                         else ->
-                            "Ce téléphone ne permet pas le flou en ce moment (Android 12 minimum, et le flou est coupé en mode économie d'énergie). Les masques restent opaques en attendant."
+                            "Ce téléphone ne permet pas le flou en ce moment : Android 12 minimum, et le flou est coupé en mode économie d'énergie (ou par l'option développeur « Autoriser le flou au niveau des fenêtres »). Les masques restent opaques en attendant."
                     },
                     color = g.textSecondary, fontSize = 12.sp,
                 )

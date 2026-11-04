@@ -59,6 +59,9 @@ class MaskOverlayManager(
     /** Active ou non le style « Verre » (sans effet si le téléphone ne sait pas flouter). */
     fun setGlass(on: Boolean) {
         val want = on && glassSupported
+        if (on && !glassSupported && GlassWindow.lastError == null) {
+            GlassWindow.lastError = "le téléphone a coupé le flou des fenêtres"
+        }
         if (want == glassOn) return
         glassOn = want
         for (e in entries.values) {
@@ -76,7 +79,14 @@ class MaskOverlayManager(
             return
         }
         try {
-            val g = (e.glass as? GlassWindow) ?: GlassWindow(context, dark).also { e.glass = it }
+            // La fenêtre des masques doit être en place (son jeton sert à rattacher le verre).
+            val token = ensureContainer()?.windowToken
+            if (token == null) {
+                e.view.alpha = 1f
+                container?.post { if (entries.containsValue(e)) place(e) }
+                return
+            }
+            val g = (e.glass as? GlassWindow) ?: GlassWindow(context, dark, token).also { e.glass = it }
             g.setDark(dark)
             g.setPending(e.pending)
             if (shown.isEmpty) {
@@ -86,6 +96,7 @@ class MaskOverlayManager(
             if (!g.place(Rect(shown))) throw IllegalStateException("fenêtre floutée refusée")
         } catch (t: Throwable) {
             // Quoi qu'il arrive, le masque opaque reste en place : rien ne s'affiche dessous.
+            if (GlassWindow.lastError == null) GlassWindow.lastError = t.toString().take(300)
             glassBroken = true
             entries.values.forEach { removeGlass(it) }
             e.view.alpha = 1f
