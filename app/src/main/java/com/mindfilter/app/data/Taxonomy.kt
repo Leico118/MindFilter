@@ -659,7 +659,14 @@ private fun catDeces(): Category =
                 "deces.temoignages", "Témoignages",
                 t(
                     "deces.temoignages.deuil", "Récits de deuil",
-                    s("deuil", "endeuillé*", "mon père est mort", "ma mère est morte", "j'ai perdu mon", "j'ai perdu ma", "j'ai perdu mes", "perte d'un proche", "repose en paix", "tu nous manques", "depuis ton départ", "dernier adieu", "veillée funèbre", "enterrement", "cimetière"),
+                    s("deuil", "endeuillé*", "mon père est mort", "ma mère est morte", "j'ai perdu mon", "j'ai perdu ma", "j'ai perdu mes", "perte d'un proche", "repose en paix", "tu nous manques", "depuis ton départ", "dernier adieu", "veillée funèbre"),
+                    // Enterrement d'un proche : fort. Le mot seul (anecdote, histoire, tradition…)
+                    // ne suffit plus : « payer son enterrement », « un cimetière historique »…
+                    all(STRONG, listOf("enterrement", "obsèques", "funérailles", "inhumation"), listOf("de mon", "de ma", "de mes", "de notre", "de nos", "de son fils", "de sa fille", "de leur fils", "de leur fille", "aujourd'hui", "ce matin", "demain")),
+                    // Enterrement + mort dans le même texte (« une dame morte qui se plaignait de son
+                    // propre enterrement ») : fort aussi.
+                    all(STRONG, listOf("enterrement", "obsèques", "funérailles", "inhumation", "cercueil*"), listOf("mort", "morte", "morts", "mortes", "décédé*", "défunt*", "cadavre*", "dépouille")),
+                    w("enterrement", "cimetière", "funéraire*", "cercueil*", "obsèques", "funérailles"),
                     m("rip"),
                 ),
                 t(

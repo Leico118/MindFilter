@@ -314,6 +314,22 @@ object ScreenScanner {
     )
 
     /** Indices qu'un élément affiche une vidéo (type d'élément ou description). */
+    /** Boutons d'action posés sur une vidéo (J'aime, Commenter, Partager…) : ce n'est jamais
+     *  un morceau de Reel voisin, même collés au bord droit de l'écran. */
+    private val CONTROL_TEXT = Regex("(?i)j.?aime|\\blike|r[ée]agi|r[ée]action|comment|partag|share|enregistr|\\bsave|suivre|follow|options|menu|\\bson\\b|audio|musique|remix|envoyer|send")
+
+    private fun isControl(n: SNode): Boolean {
+        if (CONTROL_TEXT.containsMatchIn(n.fullText)) return true
+        var clickable = 0
+        fun count(x: SNode) {
+            if (clickable >= 2) return
+            try { if (x.info?.isClickable == true) clickable++ } catch (_: Exception) {}
+            x.children.forEach { count(it) }
+        }
+        n.children.forEach { count(it) }
+        return clickable >= 2
+    }
+
     private val VIDEO_CLASS = Regex("(?i)video|textureview|surfaceview|exoplayer|playerview")
     private val VIDEO_TEXT = Regex("(?i)\\bvid[ée]os?\\b|lecteur vid|lire la vid|play video|\\breels?\\b|activer le son|désactiver le son|couper le son|unmute|\\bmute\\b|\\b\\d{1,2}:\\d{2}\\b")
 
@@ -366,10 +382,10 @@ object ScreenScanner {
             // carrousel) : analysé comme une vidéo (revérifié pendant la lecture), mais jamais
             // caché « par précaution » : il n'est masqué que s'il pose vraiment problème.
             val sliver = analyzeSlivers && info != null && !n.offscreen && !textual && !looksLikeImage && !looksLikeVideo &&
-                n.bounds.height() >= minH && n.bounds.width() >= screen.width() / 10 && n.bounds.width() < minW &&
+                n.bounds.height() >= screen.width() * 4 / 10 && n.bounds.width() >= screen.width() / 10 && n.bounds.width() < minW &&
                 (n.bounds.left <= screen.left + 2 || n.bounds.right >= screen.right - 2) &&
                 n.fullText.length <= 120 && n.children.all { it.fullText.length <= 80 } &&
-                n.bounds.height() >= n.bounds.width()
+                n.bounds.height() >= n.bounds.width() && !isControl(n)
             if (sliver && info != null) {
                 val key = "${info.hashCode()}|${n.ownText.take(80).hashCode()}|bord"
                 val label = lookup(key)
