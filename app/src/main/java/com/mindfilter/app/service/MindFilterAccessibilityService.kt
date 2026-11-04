@@ -274,12 +274,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val dark = when (s.maskStyle) {
             MaskStyle.DARK -> true
             MaskStyle.LIGHT -> false
-            MaskStyle.AUTO, MaskStyle.GLASS -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            MaskStyle.AUTO, MaskStyle.GLASS, MaskStyle.COLOR -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
         val glass = s.maskStyle == MaskStyle.GLASS
+        val hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null
         main.post {
             overlay.setGlass(glass)
+            overlay.setHue(hue)
             if (!settings.protectionEnabled) {
                 overlay.clear()
             } else if (!replayingGesture) {

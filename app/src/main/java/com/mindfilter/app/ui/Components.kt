@@ -236,8 +236,33 @@ fun categoryLook(id: String): CategoryLook = when (id) {
 
 /** Aperçu fidèle du masque affiché par-dessus les applications. */
 @Composable
-fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier, glass: Boolean = false) {
+fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier, glass: Boolean = false, hue: Float? = null) {
     val shape = RoundedCornerShape(28.dp)
+    if (hue != null) {
+        Box(
+            modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .clip(shape)
+                .background(Brush.linearGradient(maskGradient(hue)))
+                .background(Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x00FFFFFF))))
+                .border(1.dp, Brush.linearGradient(listOf(Color(0x80FFFFFF), Color(0x14FFFFFF))), shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color(0xEB0B0B0D))
+                    .padding(horizontal = 13.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Masqué", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        return
+    }
     if (glass) {
         // Aperçu « Verre » : couleurs vives très floutées sous un léger voile.
         Box(
@@ -461,3 +486,56 @@ fun bottomBarSpace(): Dp =
 @Composable
 fun navBarSpace(): Dp =
     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp
+
+
+/** Les deux couleurs du dégradé d'un masque « Couleur » (identiques à celles des vrais masques). */
+fun maskGradient(hue: Float): List<Color> = listOf(
+    Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.55f, 0.95f))),
+    Color(android.graphics.Color.HSVToColor(floatArrayOf((hue + 28f) % 360f, 0.85f, 0.55f))),
+)
+
+/** Choix de la couleur des masques : quelques teintes toutes prêtes + une barre arc-en-ciel. */
+@Composable
+fun MaskHuePicker(hue: Float, onChange: (Float) -> Unit) {
+    val presets = listOf(0f to "Rouge", 25f to "Orange", 48f to "Jaune", 140f to "Vert", 175f to "Turquoise", 210f to "Bleu", 265f to "Violet", 325f to "Rose")
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        presets.chunked(4).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                row.forEach { (h, name) ->
+                    val sel = kotlin.math.abs(h - hue) < 1f
+                    Box(
+                        Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, if (sel) maskGradient(h)[0] else Color.Transparent, CircleShape)
+                            .padding(5.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(maskGradient(h)))
+                            .clickable { onChange(h) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (sel) Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = name, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+        // Barre arc-en-ciel : n'importe quelle teinte.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+                .clip(CircleShape)
+                .background(Brush.horizontalGradient((0..12).map { Color(android.graphics.Color.HSVToColor(floatArrayOf(it * 30f % 360f, 0.7f, 0.95f))) })),
+        )
+        androidx.compose.material3.Slider(
+            value = hue,
+            onValueChange = { onChange(it) },
+            valueRange = 0f..359f,
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = maskGradient(hue)[0],
+                activeTrackColor = Color.Transparent,
+                inactiveTrackColor = Color.Transparent,
+            ),
+        )
+    }
+}

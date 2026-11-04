@@ -94,7 +94,7 @@ enum class AppStyle(val label: String, val description: String, val previewTop: 
     CONTRASTE("Contraste", "Lisibilité maximale : noir et blanc", 0xFF000000, 0xFFFFFFFF),
 }
 
-enum class MaskStyle(val label: String) { AUTO("Auto"), LIGHT("Clair"), DARK("Sombre"), GLASS("Verre") }
+enum class MaskStyle(val label: String) { AUTO("Auto"), LIGHT("Clair"), DARK("Sombre"), GLASS("Verre"), COLOR("Couleur") }
 
 enum class TouchMode(val label: String, val description: String) {
     BLOCK(
@@ -128,6 +128,8 @@ data class SettingsState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val appStyle: AppStyle = AppStyle.VERRE,
     val maskStyle: MaskStyle = MaskStyle.AUTO,
+    /** Teinte (0 à 360°) des masques en style « Couleur ». 140 = vert. */
+    val maskHue: Float = 140f,
     val touchMode: TouchMode = TouchMode.BLOCK,
     val autoActivation: Boolean = true,
     /** Analyse des images (reconnaissance d'objets + lecture du texte), désactivée par défaut. */
@@ -223,6 +225,7 @@ object AppSettings {
                 if (v == "PAPIER") AppStyle.NOIR else enumOr(v, d.appStyle)
             },
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
+            maskHue = prefs.getFloat("maskHue", d.maskHue),
             touchMode = enumOr(prefs.getString("touchMode2", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
             imageAnalysis = prefs.getBoolean("imageAnalysis", d.imageAnalysis),
@@ -246,6 +249,7 @@ object AppSettings {
             .putString("themeMode", s.themeMode.name)
             .putString("appStyle", s.appStyle.name)
             .putString("maskStyle", s.maskStyle.name)
+            .putFloat("maskHue", s.maskHue)
             .putString("touchMode2", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
             .putBoolean("imageAnalysis", s.imageAnalysis)

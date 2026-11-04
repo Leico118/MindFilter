@@ -42,6 +42,16 @@ class MaskOverlayManager(
         var glass: Any? = null
     }
 
+    // --- Style « Couleur » ---------------------------------------------------------------------
+    private var hue: Float? = null
+
+    /** Teinte des masques (style « Couleur »), ou null pour clair / sombre / verre. */
+    fun setHue(value: Float?) {
+        if (value == hue) return
+        hue = value
+        entries.values.forEach { it.view.setHue(value) }
+    }
+
     // --- Style « Verre » ----------------------------------------------------------------------
     private var glassOn = false
     private val glassSupported: Boolean by lazy { GlassWindow.supported(context) }
@@ -354,6 +364,7 @@ class MaskOverlayManager(
     private fun add(t: MaskTarget): Boolean {
         val c = ensureContainer() ?: return false
         val view = MaskView(context, dark, relay)
+        view.setHue(hue)
         view.setPending(t.kind == MaskTarget.KIND_PENDING)
         val e = Entry(view, Rect(t.rect), Rect(t.clip))
         val shown = visiblePart(e.rect, e.clip)

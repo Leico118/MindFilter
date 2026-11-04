@@ -72,6 +72,17 @@ class MaskView(
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
+    /** Style « Couleur » : teinte choisie (0 à 360°), ou null pour les styles clair / sombre. */
+    private var hue: Float? = null
+
+    fun setHue(value: Float?) {
+        if (value != hue) {
+            hue = value
+            onSizeChanged(width, height, width, height)
+            invalidate()
+        }
+    }
+
     /** Style « Verre » : voile translucide (le flou est fait par la fenêtre derrière). */
     private var glass = false
 
@@ -129,6 +140,16 @@ class MaskView(
             if (dark) 0x0FFFFFFF else 0x59FFFFFF,
             Shader.TileMode.CLAMP,
         )
+        hue?.let { hv ->
+            // Dégradé en diagonale : teinte claire et lumineuse en haut à gauche, plus profonde
+            // (et légèrement décalée) en bas à droite. Toujours opaque.
+            val top = android.graphics.Color.HSVToColor(floatArrayOf(hv, 0.55f, 0.95f))
+            val bottom = android.graphics.Color.HSVToColor(floatArrayOf((hv + 28f) % 360f, 0.85f, 0.55f))
+            fill.color = 0xFF000000.toInt()
+            fill.shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
+            sheen.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), 0x40FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+            border.shader = LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), 0x80FFFFFF.toInt(), 0x14FFFFFF, Shader.TileMode.CLAMP)
+        } ?: run { fill.shader = null }
         capsule.color = 0xEB0B0B0D.toInt()
         textPaint.textSize = 13f * sp
         iconPaint.strokeWidth = 1.6f * dp

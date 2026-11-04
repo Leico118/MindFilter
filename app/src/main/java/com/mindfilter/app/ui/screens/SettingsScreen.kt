@@ -216,15 +216,25 @@ fun SettingsScreen(resumeTick: Int) {
                 Segmented(MaskStyle.entries.toList(), s.maskStyle, { it.label }) { v -> AppSettings.update { it.copy(maskStyle = v) } }
                 Spacer(Modifier.height(12.dp))
                 val previewDark = when (s.maskStyle) {
-                    MaskStyle.AUTO, MaskStyle.GLASS -> systemDark
+                    MaskStyle.AUTO, MaskStyle.GLASS, MaskStyle.COLOR -> systemDark
                     MaskStyle.DARK -> true
                     MaskStyle.LIGHT -> false
                 }
-                MaskPreview(previewDark, glass = s.maskStyle == MaskStyle.GLASS)
+                MaskPreview(
+                    previewDark,
+                    glass = s.maskStyle == MaskStyle.GLASS,
+                    hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null,
+                )
+                if (s.maskStyle == MaskStyle.COLOR) {
+                    Spacer(Modifier.height(14.dp))
+                    com.mindfilter.app.ui.MaskHuePicker(s.maskHue) { h -> AppSettings.update { it.copy(maskHue = h) } }
+                }
                 Spacer(Modifier.height(8.dp))
                 val glassOk = remember { com.mindfilter.app.overlay.GlassWindow.supported(ctx) }
                 Text(
                     when {
+                        s.maskStyle == MaskStyle.COLOR ->
+                            "Masques opaques dans la couleur de votre choix, avec un léger dégradé. Choisissez une teinte toute prête ou faites glisser le curseur sur l'arc-en-ciel."
                         s.maskStyle != MaskStyle.GLASS ->
                             "Masques opaques : le contenu dessous est totalement caché. « Verre » le floute très fortement à la place : on devine les couleurs, mais rien n'est lisible."
                         glassOk ->
