@@ -216,14 +216,22 @@ fun SettingsScreen(resumeTick: Int) {
                 Segmented(MaskStyle.entries.toList(), s.maskStyle, { it.label }) { v -> AppSettings.update { it.copy(maskStyle = v) } }
                 Spacer(Modifier.height(12.dp))
                 val previewDark = when (s.maskStyle) {
-                    MaskStyle.AUTO -> systemDark
+                    MaskStyle.AUTO, MaskStyle.GLASS -> systemDark
                     MaskStyle.DARK -> true
                     MaskStyle.LIGHT -> false
                 }
-                MaskPreview(previewDark)
+                MaskPreview(previewDark, glass = s.maskStyle == MaskStyle.GLASS)
                 Spacer(Modifier.height(8.dp))
+                val glassOk = remember { com.mindfilter.app.overlay.GlassWindow.supported(ctx) }
                 Text(
-                    "Les masques sont opaques : Android n'autorise pas une application à flouter l'écran d'une autre application. Le verre dépoli est donc reproduit par un dégradé, et le contenu dessous reste illisible.",
+                    when {
+                        s.maskStyle != MaskStyle.GLASS ->
+                            "Masques opaques : le contenu dessous est totalement caché. « Verre » le floute très fortement à la place : on devine les couleurs, mais rien n'est lisible."
+                        glassOk ->
+                            "Verre : le contenu dessous est très fortement flouté, on devine seulement les couleurs. Chaque masque est une petite fenêtre floutée : le suivi pendant le défilement peut être un peu moins fluide qu'en opaque."
+                        else ->
+                            "Ce téléphone ne permet pas le flou en ce moment (Android 12 minimum, et le flou est coupé en mode économie d'énergie). Les masques restent opaques en attendant."
+                    },
                     color = g.textSecondary, fontSize = 12.sp,
                 )
             }

@@ -72,6 +72,17 @@ class MaskView(
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
+    /** Style « Verre » : voile translucide (le flou est fait par la fenêtre derrière). */
+    private var glass = false
+
+    fun setGlass(value: Boolean) {
+        if (value != glass) {
+            glass = value
+            onSizeChanged(width, height, width, height)
+            invalidate()
+        }
+    }
+
     /** Image en cours d'analyse : capsule « Analyse… » au lieu de « Masqué ». */
     private var pending = false
 
@@ -93,7 +104,12 @@ class MaskView(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
-        fill.color = if (dark) 0xFF24262D.toInt() else 0xFFE4E7EE.toInt()
+        fill.color = when {
+            glass && dark -> 0x6618191E
+            glass -> 0x59F4F6FA
+            dark -> 0xFF24262D.toInt()
+            else -> 0xFFE4E7EE.toInt()
+        }
         sheen.shader = LinearGradient(
             0f, 0f, 0f, h.toFloat(),
             if (dark) 0x26FFFFFF else 0x8CFFFFFF.toInt(),

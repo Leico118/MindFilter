@@ -236,8 +236,39 @@ fun categoryLook(id: String): CategoryLook = when (id) {
 
 /** Aperçu fidèle du masque affiché par-dessus les applications. */
 @Composable
-fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier) {
+fun MaskPreview(dark: Boolean, modifier: Modifier = Modifier, glass: Boolean = false) {
     val shape = RoundedCornerShape(28.dp)
+    if (glass) {
+        // Aperçu « Verre » : couleurs vives très floutées sous un léger voile.
+        Box(
+            modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFFE86A5C), Color(0xFFF2B64B), Color(0xFF4FA3E0), Color(0xFF6B5BD6)),
+                    ),
+                )
+                .background(if (dark) Color(0x8018191E) else Color(0x80F4F6FA))
+                .background(Brush.verticalGradient(listOf(Color(0x33FFFFFF), Color(0x05FFFFFF))))
+                .border(1.dp, Brush.linearGradient(listOf(Color(0x66FFFFFF), Color(0x14FFFFFF))), shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color(0xEB0B0B0D))
+                    .padding(horizontal = 13.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.VisibilityOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Masqué", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        return
+    }
     val base = if (dark) Color(0xFF24262D) else Color(0xFFE4E7EE)
     val sheenTop = if (dark) Color(0x26FFFFFF) else Color(0x8CFFFFFF)
     val sheenBottom = if (dark) Color(0x05FFFFFF) else Color(0x14FFFFFF)

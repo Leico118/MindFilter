@@ -60,6 +60,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
         worker = HandlerThread("mindfilter-scan").also { it.start() }
         workerHandler = Handler(worker.looper)
         overlay = MaskOverlayManager(this, dragRelay)
+        overlay.onShieldSwipe = { pts -> replaySwipe(pts) }
+        overlay.setShieldsEnabled(settings.touchMode == TouchMode.BLOCK)
         tracker = MaskTracker(
             frameMs = frameIntervalMs(),
             screenHeight = { resources.displayMetrics.heightPixels },
@@ -89,6 +91,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val filterChanged = s.monitoredPackages != settings.monitoredPackages ||
                     s.protectionEnabled != settings.protectionEnabled
                 settings = s
+                main.post { if (::overlay.isInitialized) overlay.setShieldsEnabled(s.touchMode == TouchMode.BLOCK) }
                 if (filterChanged || !packageFilterApplied) applyPackageFilter(s)
                 if (rebuild) {
                     // Les thèmes ont changé : les images déjà jugées doivent l'être à nouveau.
@@ -271,10 +274,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val dark = when (s.maskStyle) {
             MaskStyle.DARK -> true
             MaskStyle.LIGHT -> false
-            MaskStyle.AUTO -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            MaskStyle.AUTO, MaskStyle.GLASS -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
+        val glass = s.maskStyle == MaskStyle.GLASS
         main.post {
+            overlay.setGlass(glass)
             if (!settings.protectionEnabled) {
                 overlay.clear()
             } else if (!replayingGesture) {
@@ -408,7 +413,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
     private var guardWindow = -1
 
     private fun onClickEvent(event: AccessibilityEvent) {
-        if (settings.touchMode != TouchMode.PROTECT) return
+        if (settings.touchMode == TouchMode.PASSTHROUGH) return
         val src = try {
             event.source
         } catch (e: Exception) {
@@ -450,7 +455,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         }
         if (!gone) return false
         clearGuard()
-        performGlobalAction(GLOBAL_ACTION_BACK)
+        autoBack()
         return true
     }
 
@@ -474,6 +479,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
     /** Appelé sur le fil principal quand l'écran change. */
     private fun armPageGuard() {
+        // En mode « Bloqué », les appuis sur les masques sont déjà impossibles : cette
+        // protection (moins précise) n'est utile qu'en mode « Protégé ».
         if (settings.touchMode != TouchMode.PROTECT) return
         val now = System.currentTimeMillis()
         if (overlay.count == 0 || now - lastTypingAt < 4000 || now - lastAutoBack < 3000) return
@@ -498,13 +505,58 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val allNew = visible.none { it.key in keysBeforeChange }
                 if (allNew && area * 4 >= screenArea) {
                     pageGuardAt = 0L
-                    lastAutoBack = now
-                    main.post { performGlobalAction(GLOBAL_ACTION_BACK) }
+                    main.post { autoBack() }
                     return
                 }
             }
         }
         synchronized(seenMaskKeys) { for (t in visible) seenMaskKeys[t.key] = now }
+    }
+
+    /**
+     * Un seul retour arrière à la fois : les deux protections (appui signalé, nouvel écran
+     * masqué) peuvent repérer la même ouverture. Avant, elles revenaient chacune en arrière et
+     * on se retrouvait deux écrans plus loin (ex. sur le fil au lieu de la recherche).
+     */
+    private fun autoBack() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoBack < 3000) return
+        lastAutoBack = now
+        pageGuardAt = 0L
+        clearGuard()
+        performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    /** Rejoue sur l'appli un glissement fait sur un bouclier (mode « Bloqué »). */
+    private fun replaySwipe(pts: List<TouchPoint>) {
+        if (pts.size < 2) return
+        val first = pts.first()
+        val last = pts.last()
+        val dur = (last.t - first.t).coerceIn(40L, 1500L)
+        val path = Path()
+        path.moveTo(first.x.coerceAtLeast(0f), first.y.coerceAtLeast(0f))
+        // Au plus ~24 points : le tracé garde sa forme et sa vitesse finale (lancer).
+        val step = maxOf(1, pts.size / 24)
+        for (i in step until pts.size - 1 step step) path.lineTo(pts[i].x.coerceAtLeast(0f), pts[i].y.coerceAtLeast(0f))
+        path.lineTo(last.x.coerceAtLeast(0f), last.y.coerceAtLeast(0f))
+        // Les boucliers laissent passer le geste rejoué le temps qu'il se fasse.
+        overlay.suspendShields(dur + 250)
+        val gesture = try {
+            GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, dur)).build()
+        } catch (e: Exception) {
+            return
+        }
+        replayingGesture = true
+        val done = object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) = finish()
+            override fun onCancelled(gestureDescription: GestureDescription?) = finish()
+            private fun finish() {
+                replayingGesture = false
+                if (overlay.count > 0) tracker.poke()
+                requestScan(0)
+            }
+        }
+        if (!dispatchGesture(gesture, done, null)) replayingGesture = false
     }
 
     private fun clearGuard() {
@@ -517,7 +569,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (guardUntil != 0L && System.currentTimeMillis() <= guardUntil) {
             clearGuard()
             // La publication masquée a été ouverte par un appui : on revient en arrière.
-            performGlobalAction(GLOBAL_ACTION_BACK)
+            autoBack()
         } else {
             clearGuard()
         }

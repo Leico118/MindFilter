@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -32,6 +35,158 @@ class MaskOverlayManager(
         var trackedAt = 0L
         /** Masque provisoire (image en cours d'analyse) : pas compté comme masquage. */
         var pending = false
+        /** Bouclier qui absorbe les appuis (mode « Bloqué »), dans sa propre petite fenêtre. */
+        var shield: ShieldView? = null
+        var shieldLp: WindowManager.LayoutParams? = null
+        /** Fenêtre floutée du style « Verre » (Android 12 et plus). */
+        var glass: Any? = null
+    }
+
+    // --- Style « Verre » ----------------------------------------------------------------------
+    private var glassOn = false
+    private val glassSupported: Boolean by lazy { GlassWindow.supported(context) }
+
+    /** Active ou non le style « Verre » (sans effet si le téléphone ne sait pas flouter). */
+    fun setGlass(on: Boolean) {
+        val want = on && glassSupported
+        if (want == glassOn) return
+        glassOn = want
+        for (e in entries.values) {
+            if (!want) removeGlass(e)
+            place(e)
+        }
+    }
+
+    private fun placeGlass(e: Entry, shown: Rect) {
+        if (!glassOn || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            e.view.alpha = 1f
+            return
+        }
+        val g = (e.glass as? GlassWindow) ?: GlassWindow(context, dark).also { e.glass = it }
+        g.setDark(dark)
+        g.setPending(e.pending)
+        if (shown.isEmpty) {
+            g.hide()
+            return
+        }
+        g.place(Rect(shown))
+        // Le masque opaque reste dessous un court instant, le temps que la fenêtre floutée
+        // apparaisse (rien n'est visible entre les deux), puis il s'efface.
+        if (e.view.alpha > 0f) e.view.postDelayed({ if (e.glass != null) e.view.alpha = 0f }, 120)
+    }
+
+    private fun removeGlass(e: Entry) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (e.glass as? GlassWindow)?.dismiss()
+        e.glass = null
+        e.view.alpha = 1f
+    }
+
+    // --- Boucliers (mode « Bloqué ») ----------------------------------------------------------
+    // Chaque masque visible reçoit une petite fenêtre invisible qui absorbe les appuis. Pendant
+    // un défilement, les boucliers sont rendus inactifs (les masques bougent) puis replacés dès
+    // que la page s'arrête.
+
+    /** Appelé avec le tracé d'un glissement fait sur un bouclier, à rejouer sur l'appli. */
+    var onShieldSwipe: ((List<TouchPoint>) -> Unit)? = null
+    private var shieldsOn = false
+    private var shieldsActive = true
+    private var shieldsSuspendedUntil = 0L
+    private val handler = Handler(Looper.getMainLooper())
+    private val settle = Runnable { syncShields() }
+
+    fun setShieldsEnabled(on: Boolean) {
+        if (on == shieldsOn) return
+        shieldsOn = on
+        if (on) syncShields() else entries.values.forEach { removeShield(it) }
+    }
+
+    /** Boucliers traversables pendant [ms] (le temps de rejouer un glissement sur l'appli). */
+    fun suspendShields(ms: Long) {
+        shieldsSuspendedUntil = SystemClock.uptimeMillis() + ms
+        setShieldsTouchable(false)
+        handler.removeCallbacks(settle)
+        handler.postDelayed(settle, ms)
+    }
+
+    /** Un masque a bougé : boucliers inactifs, puis replacés quand tout est immobile. */
+    private fun moved() {
+        if (!shieldsOn) return
+        setShieldsTouchable(false)
+        handler.removeCallbacks(settle)
+        handler.postDelayed(settle, SETTLE_MS)
+    }
+
+    private fun setShieldsTouchable(on: Boolean) {
+        if (on == shieldsActive) return
+        shieldsActive = on
+        for (e in entries.values) {
+            val lp = e.shieldLp ?: continue
+            lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            try { wm.updateViewLayout(e.shield, lp) } catch (_: Exception) {}
+        }
+    }
+
+    private fun syncShields() {
+        if (!shieldsOn) return
+        if (SystemClock.uptimeMillis() < shieldsSuspendedUntil) {
+            handler.postDelayed(settle, shieldsSuspendedUntil - SystemClock.uptimeMillis())
+            return
+        }
+        for (e in entries.values) {
+            val shown = visiblePart(e.rect, e.clip)
+            // Légèrement en retrait des bords : on ne bloque pas les éléments voisins.
+            shown.inset(minOf(6, shown.width() / 4), minOf(6, shown.height() / 4))
+            if (e.pending || e.view.visibility != View.VISIBLE || shown.width() < 8 || shown.height() < 8) {
+                removeShield(e)
+                continue
+            }
+            val lp = e.shieldLp ?: newShieldLp().also { e.shieldLp = it }
+            lp.x = shown.left
+            lp.y = shown.top
+            lp.width = shown.width()
+            lp.height = shown.height()
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            try {
+                val v = e.shield
+                if (v == null) {
+                    val sv = ShieldView(context) { pts -> onShieldSwipe?.invoke(pts) }
+                    wm.addView(sv, lp)
+                    e.shield = sv
+                } else {
+                    wm.updateViewLayout(v, lp)
+                }
+            } catch (_: Exception) {
+                removeShield(e)
+            }
+        }
+        shieldsActive = true
+    }
+
+    private fun newShieldLp() = WindowManager.LayoutParams(
+        1, 1,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT,
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        title = "MindFilterShield"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            fitInsetsTypes = 0
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+
+    private fun removeShield(e: Entry) {
+        val v = e.shield ?: return
+        e.shield = null
+        e.shieldLp = null
+        try { wm.removeViewImmediate(v) } catch (_: Exception) {}
     }
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -73,7 +228,9 @@ class MaskOverlayManager(
             val nowPending = t.kind == MaskTarget.KIND_PENDING
             // Image d'abord cachée par précaution puis reconnue : c'est un vrai masquage.
             if (e.pending && !nowPending) created++
+            val pendingChanged = e.pending != nowPending
             e.pending = nowPending
+            if (pendingChanged) place(e)
             e.view.setPending(nowPending)
             if (e.trackedAt > snapshotAt) {
                 // Le suivi en direct a une position plus récente que cette analyse : on la garde.
@@ -217,6 +374,11 @@ class MaskOverlayManager(
     }
 
     /** Partie de la publication à couvrir : sa zone complète, limitée à la liste visible. */
+    companion object {
+        /** Délai d'immobilité avant de replacer les boucliers. */
+        const val SETTLE_MS = 160L
+    }
+
     private fun visiblePart(full: Rect, clip: Rect): Rect {
         val r = Rect(full)
         return if (r.intersect(clip)) r else Rect(clip.left, clip.top, clip.left, clip.top)
@@ -227,7 +389,9 @@ class MaskOverlayManager(
      * fenêtre) ; la taille ne change que lorsque la publication passe sous un bord.
      */
     private fun place(e: Entry) {
+        moved()
         val shown = visiblePart(e.rect, e.clip)
+        placeGlass(e, shown)
         if (shown.isEmpty) {
             e.view.visibility = View.INVISIBLE
             return
@@ -261,6 +425,8 @@ class MaskOverlayManager(
 
     private fun remove(key: String) {
         val e = entries.remove(key) ?: return
+        removeShield(e)
+        removeGlass(e)
         if (e.view.visibility == View.VISIBLE && !e.pending) {
             recentlyRemoved.add(visiblePart(e.rect, e.clip) to android.os.SystemClock.uptimeMillis())
             if (recentlyRemoved.size > 30) recentlyRemoved.removeAt(0)

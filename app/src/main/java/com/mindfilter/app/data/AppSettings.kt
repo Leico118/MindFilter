@@ -94,9 +94,13 @@ enum class AppStyle(val label: String, val description: String, val previewTop: 
     CONTRASTE("Contraste", "Lisibilité maximale : noir et blanc", 0xFF000000, 0xFFFFFFFF),
 }
 
-enum class MaskStyle(val label: String) { AUTO("Automatique"), LIGHT("Clair"), DARK("Sombre") }
+enum class MaskStyle(val label: String) { AUTO("Auto"), LIGHT("Clair"), DARK("Sombre"), GLASS("Verre") }
 
 enum class TouchMode(val label: String, val description: String) {
+    BLOCK(
+        "Bloqué",
+        "Les appuis sur un masque ne passent pas : impossible d'ouvrir ce qui est masqué. Un glissement commencé sur un masque fait quand même défiler la page, juste après avoir levé le doigt.",
+    ),
     PROTECT(
         "Protégé",
         "Le défilement passe à travers les masques, comme s'ils n'étaient pas là. Si un appui ouvre une publication masquée, MindFilter la referme aussitôt.",
@@ -124,7 +128,7 @@ data class SettingsState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val appStyle: AppStyle = AppStyle.VERRE,
     val maskStyle: MaskStyle = MaskStyle.AUTO,
-    val touchMode: TouchMode = TouchMode.PROTECT,
+    val touchMode: TouchMode = TouchMode.BLOCK,
     val autoActivation: Boolean = true,
     /** Analyse des images (reconnaissance d'objets + lecture du texte), désactivée par défaut. */
     val imageAnalysis: Boolean = false,
@@ -219,7 +223,7 @@ object AppSettings {
                 if (v == "PAPIER") AppStyle.NOIR else enumOr(v, d.appStyle)
             },
             maskStyle = enumOr(prefs.getString("maskStyle", null), d.maskStyle),
-            touchMode = enumOr(prefs.getString("touchMode", null), d.touchMode),
+            touchMode = enumOr(prefs.getString("touchMode2", null), d.touchMode),
             autoActivation = prefs.getBoolean("autoActivation", d.autoActivation),
             imageAnalysis = prefs.getBoolean("imageAnalysis", d.imageAnalysis),
             imagePrecaution = prefs.getBoolean("imagePrecaution2", d.imagePrecaution),
@@ -242,7 +246,7 @@ object AppSettings {
             .putString("themeMode", s.themeMode.name)
             .putString("appStyle", s.appStyle.name)
             .putString("maskStyle", s.maskStyle.name)
-            .putString("touchMode", s.touchMode.name)
+            .putString("touchMode2", s.touchMode.name)
             .putBoolean("autoActivation", s.autoActivation)
             .putBoolean("imageAnalysis", s.imageAnalysis)
             .putBoolean("imagePrecaution2", s.imagePrecaution)

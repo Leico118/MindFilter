@@ -180,7 +180,10 @@ object ScreenScanner {
         // (cas de la recherche Facebook sur certains téléphones) : on regarde à l'intérieur.
         val fillsList = n.bounds.top <= clip.top + 4 && n.bounds.bottom >= clip.bottom - 4 &&
             n.bounds.height() >= clip.height() * 6 / 10 && n.children.isNotEmpty()
-        val tooBig = n.scrollable || fillsList || n.bounds.height() > maxHeight || n.bounds.width() <= 0
+        // Bloc qui occupe presque toute la liste (page entière en cours de chargement…) : jamais
+        // masqué d'un seul tenant, on regarde à l'intérieur.
+        val wholePage = n.bounds.height() >= clip.height() * 9 / 10 && n.bounds.width() >= clip.width() * 9 / 10
+        val tooBig = n.scrollable || fillsList || wholePage || n.bounds.height() > maxHeight || n.bounds.width() <= 0
         if (!tooBig) {
             val match = classifier.classify(n.fullText)
                 ?: n.flagLabel?.let { MatchResult("image", it, 4) }
@@ -223,7 +226,7 @@ object ScreenScanner {
         for (c in n.children) if (visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
         // Pas de regroupement pour un conteneur de plusieurs publications : on ne masque pas
         // tout un écran parce que des mots de publications différentes se combinent.
-        if (any || n.hasScrollable || fillsList) return any
+        if (any || n.hasScrollable || fillsList || wholePage) return any
         // Grand bloc sans liste (ex. article ouvert) : le sujet n'apparaît qu'en combinant
         // plusieurs paragraphes. On masque alors ces paragraphes.
         val match = classifier.classify(n.fullText) ?: return false
@@ -399,11 +402,11 @@ object ScreenScanner {
     fun maskRect(bounds: Rect, clip: Rect): Rect {
         val full = Rect(bounds)
         if (!Rect.intersects(bounds, clip)) return full
-        // Prolongement limité : deux fois la partie visible, au moins un quart de la liste, au
-        // plus sa hauteur. Avant, il valait toujours une hauteur d'écran : une petite ligne
+        // Prolongement limité : la hauteur de la partie visible (au moins 200 px), au plus un
+        // quart de la liste. Avant, il valait toujours une hauteur d'écran : une petite ligne
         // coupée par le bord devenait un masque géant dès qu'elle entrait dans l'écran. Le
         // suivi relit la vraie position quelques images plus tard et ajuste le masque.
-        val extra = minOf(clip.height(), maxOf(bounds.height() * 2, clip.height() / 4))
+        val extra = minOf(clip.height() / 4, maxOf(bounds.height(), 200))
         if (full.bottom >= clip.bottom - 3) full.bottom += extra
         if (full.top <= clip.top + 3) full.top -= extra
         return full
