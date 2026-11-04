@@ -14,7 +14,12 @@ import kotlin.math.hypot
  * touche l'écran) : la page défile quand même.
  */
 @SuppressLint("ViewConstructor")
-class ShieldView(context: Context, private val onSwipe: (List<TouchPoint>) -> Unit) : View(context) {
+class ShieldView(
+    context: Context,
+    /** Appui simple (coordonnées écran), par ex. sur le bouton « i ». */
+    private val onTap: (Int, Int) -> Unit = { _, _ -> },
+    private val onSwipe: (List<TouchPoint>) -> Unit,
+) : View(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private val points = ArrayList<TouchPoint>(64)
     private var moved = false
@@ -55,7 +60,7 @@ class ShieldView(context: Context, private val onSwipe: (List<TouchPoint>) -> Un
             MotionEvent.ACTION_UP -> {
                 points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
                 // Appui simple, double ou long : absorbé, rien n'est transmis.
-                if (moved && points.size >= 2) onSwipe(points.toList())
+                if (moved && points.size >= 2) onSwipe(points.toList()) else if (!moved) onTap(event.rawX.toInt(), event.rawY.toInt())
                 points.clear()
             }
             MotionEvent.ACTION_CANCEL -> points.clear()

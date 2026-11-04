@@ -767,6 +767,30 @@ object TaxonomyIndex {
         TAXONOMY.filter { it.defaultEnabled }.flatMap { it.allThemes }.map { it.id }.toSet()
 
     fun themeName(id: String): String = themesById[id]?.name ?: id
+
+    private val categoryOfTheme: Map<String, String> =
+        TAXONOMY.flatMap { c -> c.allThemes.map { it.name.lowercase() to c.name } }.toMap()
+    private val SOURCE = Regex("\\s*\\(([^)]*)\\)\\s*$")
+
+    /**
+     * Texte affiché quand on touche le « i » d'un masque : catégorie › thème, et l'origine
+     * (image, texte de l'image). Ex. « Décès et drames humains › Décès soudains ».
+     */
+    fun describe(label: String): String {
+        val m = SOURCE.find(label)
+        val source = m?.groupValues?.get(1)
+        val name = if (m != null) label.substring(0, m.range.first).trim() else label.trim()
+        val cat = categoryOfTheme[name.lowercase()]
+        val base = when {
+            name.startsWith("Contenu pour adultes") -> "Contenus pour adultes"
+            cat != null && !cat.equals(name, ignoreCase = true) -> "$cat › $name"
+            cat != null -> name
+            // Thème inconnu de la liste : c'est un filtre créé par l'utilisateur.
+            source == null -> "Filtre personnel › $name"
+            else -> name
+        }
+        return if (source != null) "$base ($source)" else base
+    }
 }
 
 private fun catAdulte(): Category = Category(

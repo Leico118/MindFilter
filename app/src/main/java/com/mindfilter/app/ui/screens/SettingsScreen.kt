@@ -230,21 +230,17 @@ fun SettingsScreen(resumeTick: Int) {
                     com.mindfilter.app.ui.MaskHuePicker(s.maskHue) { h -> AppSettings.update { it.copy(maskHue = h) } }
                 }
                 Spacer(Modifier.height(8.dp))
-                val glassOk = remember { com.mindfilter.app.overlay.GlassWindow.supported(ctx) }
+                val glassOk = android.os.Build.VERSION.SDK_INT >= 34
                 Text(
                     when {
                         s.maskStyle == MaskStyle.COLOR ->
                             "Masques opaques dans la couleur de votre choix, avec un léger dégradé. Choisissez une teinte toute prête ou faites glisser le curseur sur l'arc-en-ciel."
                         s.maskStyle != MaskStyle.GLASS ->
-                            "Masques opaques : le contenu dessous est totalement caché. « Verre » le floute très fortement à la place : on devine les couleurs, mais rien n'est lisible."
-                        glassOk && com.mindfilter.app.overlay.GlassWindow.lastError != null ->
-                            "Le flou n'a pas pu s'afficher sur ce téléphone, les masques sont restés opaques. Raison : " +
-                                com.mindfilter.app.overlay.GlassWindow.lastError + ". Si l'économie d'énergie est activée, coupez-la, " +
-                                "puis redémarrez le service MindFilter (Accessibilité → MindFilter → désactiver / réactiver)."
+                            "Masques opaques : le contenu dessous est totalement caché. « Verre » le remplace par des taches de couleur très floues : on devine les couleurs, mais rien n'est lisible."
                         glassOk ->
-                            "Verre : le contenu dessous est très fortement flouté, on devine seulement les couleurs. Chaque masque est une petite fenêtre floutée : le suivi pendant le défilement peut être un peu moins fluide qu'en opaque."
+                            "Verre : chaque masque montre seulement des taches de couleur très floues de ce qu'il cache, mises à jour environ une fois par seconde quand la page est immobile. Un tout nouveau masque reste opaque une fraction de seconde. La capture reste en mémoire et est effacée aussitôt."
                         else ->
-                            "Ce téléphone ne permet pas le flou en ce moment : Android 12 minimum, et le flou est coupé en mode économie d'énergie (ou par l'option développeur « Autoriser le flou au niveau des fenêtres »). Les masques restent opaques en attendant."
+                            "Le style Verre demande Android 14 ou plus récent. Les masques restent opaques sur ce téléphone."
                     },
                     color = g.textSecondary, fontSize = 12.sp,
                 )

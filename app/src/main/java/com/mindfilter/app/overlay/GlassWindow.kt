@@ -66,6 +66,8 @@ class GlassWindow(context: Context, dark: Boolean, parentToken: android.os.IBind
 
     fun setPending(value: Boolean) = view.setPending(value)
 
+    fun showInfo(text: String) = view.showInfo(text)
+
     /** Place la fenêtre sur la zone visible du masque (coordonnées écran). false = refusée. */
     fun place(r: Rect): Boolean {
         if (lp.x == r.left && lp.y == r.top && lp.width == r.width() && lp.height == r.height() && shown) return true

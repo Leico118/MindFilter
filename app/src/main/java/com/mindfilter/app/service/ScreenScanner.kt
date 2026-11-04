@@ -188,18 +188,20 @@ object ScreenScanner {
             val match = classifier.classify(n.fullText)
                 ?: n.flagLabel?.let { MatchResult("image", it, 4) }
                 ?: return false
-            // Liste de lignes semblables (historique de recherche, liste de groupes, menu…) :
-            // chaque ligne est indépendante. On ne masque que les lignes concernées, et rien si
-            // aucune ligne ne l'est à elle seule (des mots de lignes différentes ne doivent pas
-            // se combiner).
-            val list = findRowList(n)
-            if (list != null && n.flagLabel == null) {
-                var any = false
-                for (c in list.children) {
-                    if (c.fullText.isBlank()) continue
-                    if (classifier.classify(c.fullText) != null && visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
+            // Listes de lignes semblables (historique de recherche, liste de groupes, menu…) dans
+            // ce bloc : chaque ligne est indépendante. Si le masquage ne vient que de lignes de
+            // ces listes (le reste du bloc ne pose aucun problème), on ne masque que ces lignes,
+            // et rien si aucune ligne ne pose problème à elle seule.
+            if (n.flagLabel == null) {
+                val lists = collectRowLists(n)
+                if (lists.isNotEmpty() && classifier.classify(textWithout(n, lists)) == null) {
+                    var any = false
+                    for (l in lists) for (c in l.children) {
+                        if (c.fullText.isBlank()) continue
+                        if (classifier.classify(c.fullText) != null && visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
+                    }
+                    return any
                 }
-                return any
             }
             // Grand bloc qui contient PLUSIEURS éléments concernés chacun de son côté : c'est
             // une liste de publications (ex. résultats de recherche), pas une seule publication.
@@ -245,6 +247,43 @@ object ScreenScanner {
      * liste de lignes semblables : au moins 4 lignes de texte de même type et de hauteur
      * voisine, sans grande image. Une publication (en-tête, texte, photo, boutons) n'en est pas une.
      */
+    /** Listes de lignes contenues dans [n] (lui compris), jusqu'à quelques niveaux de profondeur. */
+    internal fun collectRowLists(n: SNode, depth: Int = 0, out: MutableList<SNode> = ArrayList()): List<SNode> {
+        if (depth > 6) return out
+        if (isRowList(n)) {
+            out.add(n)
+            return out
+        }
+        for (c in n.children) if (c.fullText.isNotBlank()) collectRowLists(c, depth + 1, out)
+        return out
+    }
+
+    /** Texte de [n] sans celui des nœuds [skip]. */
+    internal fun textWithout(n: SNode, skip: List<SNode>): String {
+        if (skip.any { it === n }) return ""
+        val sb = StringBuilder(n.ownText)
+        for (c in n.children) {
+            val t = textWithout(c, skip)
+            if (t.isNotBlank()) {
+                if (sb.isNotEmpty()) sb.append(" · ")
+                sb.append(t)
+            }
+        }
+        return sb.toString()
+    }
+
+    /** [n] est-il lui-même une liste de lignes semblables ? */
+    internal fun isRowList(n: SNode): Boolean {
+        val textKids = n.children.filter { it.fullText.isNotBlank() }
+        if (textKids.size < 4) return false
+        val heights = textKids.map { it.bounds.height() }.sorted()
+        val med = heights[heights.size / 2].coerceAtLeast(1)
+        val mainClass = textKids.groupingBy { it.className }.eachCount().maxByOrNull { it.value }?.key
+        val rows = textKids.count { it.className == mainClass && it.bounds.height() in (med / 2)..(med * 2) }
+        val bigImage = n.children.any { it.fullText.isBlank() && it.bounds.height() >= n.bounds.height() / 4 }
+        return rows >= 4 && rows * 10 >= textKids.size * 7 && !bigImage
+    }
+
     internal fun findRowList(n: SNode, depth: Int = 0): SNode? {
         if (depth > 3) return null
         val textKids = n.children.filter { it.fullText.isNotBlank() }
@@ -349,11 +388,21 @@ object ScreenScanner {
             // occupe plus de 60 % de l'écran : une petite vignette y suffisait à tout masquer.
             if (isPost && flag == null && out.size == before && info != null && !n.offscreen &&
                 n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10 &&
-                n.bounds.height() <= screen.height() * 6 / 10 && !n.hasScrollable && findRowList(n) == null
+                n.bounds.height() <= screen.height() * 6 / 10 && !n.hasScrollable && collectRowLists(n).isEmpty()
             ) {
                 val key = "zone|${info.hashCode()}|${n.bounds.width() / 16}"
                 val label = lookup(key)
                 if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds), zone = true))
+            }
+            // Une image reconnue fait masquer la publication qui la contient, mais pas plus haut
+            // qu'une vraie publication : jamais un bloc qui contient un carrousel (suggestions
+            // d'amis, Reels…), une liste de lignes (recherches) ou qui dépasse 60 % de l'écran.
+            // Seule l'image elle-même reste alors masquée. Avant, une petite photo de suggestion
+            // faisait masquer toute la page de recherche.
+            if (flag != null && n.imageFlag == null &&
+                (n.hasScrollable || n.bounds.height() > screen.height() * 6 / 10 || collectRowLists(n).isNotEmpty())
+            ) {
+                return null
             }
             n.flagLabel = flag
             return flag

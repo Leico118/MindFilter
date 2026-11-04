@@ -277,9 +277,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
         }
         // Changement d'écran que l'appli n'a pas signalé (Facebook…) : nouvelle fenêtre.
         val winId = root.windowId
+        synchronized(windowFirstSeen) { if (!windowFirstSeen.containsKey(winId)) windowFirstSeen[winId] = System.currentTimeMillis() }
         if (lastRootWindow != -1 && winId != lastRootWindow) main.post { armPageGuard() }
         lastRootWindow = winId
-        checkPageGuard(targets, screen)
+        checkPageGuard(targets, screen, winId)
         // Journal « Pourquoi c'est masqué ? » : thème et mots repérés seulement (pas le texte).
         MaskLog.currentApp = pkg
         for (t in targets) {
@@ -316,7 +317,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
         snapY: Int,
     ) {
         run {
-            overlay.setGlass(glass)
+            // Verre fait maison (Android 14+ : capture de l'appli seule, sans nos masques).
+            val fake = glass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+            overlay.setFakeGlass(fake)
+            if (fake && targets.isNotEmpty()) startGlassSampler()
             overlay.setHue(hue)
             if (!settings.protectionEnabled) {
                 overlay.clear()
@@ -343,6 +347,73 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 if (overlay.count > 0) startExitWatch()
             }
             ServiceStatus.currentlyMasked.value = overlay.count
+        }
+    }
+
+    // --- Verre fait maison ------------------------------------------------------------------
+    private var glassSampling = false
+
+    private fun startGlassSampler() {
+        if (glassSampling) return
+        glassSampling = true
+        main.postDelayed(glassTick, 150)
+    }
+
+    /**
+     * Environ une fois par seconde, quand la page est immobile : capture de l'appli seule
+     * (jamais nos masques), réduite aussitôt en taches de couleur pour chaque masque « Verre ».
+     * La capture reste en mémoire et est effacée tout de suite.
+     */
+    private val glassTick: Runnable = object : Runnable {
+        override fun run() {
+            val self: Runnable = this
+            val s = settings
+            if (s.maskStyle != MaskStyle.GLASS || !s.protectionEnabled || overlay.count == 0 ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+            ) {
+                glassSampling = false
+                return
+            }
+            if (android.os.SystemClock.uptimeMillis() - lastMoveAt < 350 || replayingGesture) {
+                main.postDelayed(this, 300)
+                return
+            }
+            val root = try { rootInActiveWindow } catch (_: Exception) { null }
+            if (root == null) {
+                main.postDelayed(this, 1000)
+                return
+            }
+            val origin = Rect().also { root.getBoundsInScreen(it) }
+            try {
+                takeScreenshotOfWindow(
+                    root.windowId,
+                    mainExecutor,
+                    object : TakeScreenshotCallback {
+                        override fun onSuccess(result: ScreenshotResult) {
+                            val hb = result.hardwareBuffer
+                            try {
+                                val wrapped = android.graphics.Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
+                                val soft = wrapped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                                wrapped?.recycle()
+                                if (soft != null) {
+                                    overlay.applyBackdrop(soft, origin.left, origin.top)
+                                    soft.recycle()
+                                }
+                            } catch (_: Throwable) {
+                            } finally {
+                                hb.close()
+                            }
+                            main.postDelayed(self, 1100)
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            main.postDelayed(self, 1500)
+                        }
+                    },
+                )
+            } catch (_: Throwable) {
+                main.postDelayed(this, 2000)
+            }
         }
     }
 
@@ -513,7 +584,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
     private val seenMaskKeys = object : LinkedHashMap<String, Long>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 400
     }
+    /** Première apparition de chaque masque (même verrou que [seenMaskKeys]). */
+    private val maskFirstSeen = object : LinkedHashMap<String, Long>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 400
+    }
     @Volatile private var keysBeforeChange: Set<String> = emptySet()
+    @Volatile private var textsJustBefore: Set<String> = emptySet()
 
     /** Appelé sur le fil principal quand l'écran change. */
     private fun armPageGuard() {
@@ -522,12 +598,28 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (settings.touchMode != TouchMode.PROTECT) return
         val now = System.currentTimeMillis()
         if (overlay.count == 0 || now - lastTypingAt < 4000 || now - lastAutoBack < 3000) return
-        keysBeforeChange = synchronized(seenMaskKeys) { seenMaskKeys.keys.toHashSet() }
+        // Seuls comptent les masques apparus AVANT le changement d'écran (plus de 400 ms) : la
+        // nouvelle page a parfois déjà été lue quand Android signale le changement.
+        val (before, justBefore) = synchronized(seenMaskKeys) {
+            val old = seenMaskKeys.keys.filter { (maskFirstSeen[it] ?: now) < now - 400 }
+            old.toHashSet() to old.filter { now - (seenMaskKeys[it] ?: 0L) < 5000 }.mapTo(HashSet()) { textPart(it) }
+        }
+        keysBeforeChange = before
+        // Contenus masqués visibles juste avant le changement d'écran (les 5 dernières secondes).
+        textsJustBefore = justBefore
         pageGuardAt = now
     }
 
     /** Appelé sur le fil d'analyse, après chaque lecture de l'écran. */
-    private fun checkPageGuard(targets: List<MaskTarget>, screen: Rect) {
+    /** Moment où chaque fenêtre (écran d'une appli) a été vue pour la première fois. */
+    private val windowFirstSeen = object : LinkedHashMap<Int, Long>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Long>?) = size > 60
+    }
+
+    /** Partie « texte » de la clé d'un masque (identique pour le même contenu ailleurs). */
+    private fun textPart(key: String) = key.substringAfter('|').substringBefore('#')
+
+    private fun checkPageGuard(targets: List<MaskTarget>, screen: Rect, winId: Int) {
         val visible = targets.filter { it.kind != MaskTarget.KIND_PENDING && Rect.intersects(it.rect, it.clip) }
         val now = System.currentTimeMillis()
         val armedAt = pageGuardAt
@@ -541,14 +633,25 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 }
                 val screenArea = (screen.width().toLong() * screen.height()).coerceAtLeast(1L)
                 val allNew = visible.none { it.key in keysBeforeChange }
-                if (allNew && area * 4 >= screenArea) {
+                // Nouvel écran (jamais vu avant l'appui) qui montre un contenu masqué juste avant
+                // (même texte) : c'est ce contenu qui vient d'être ouvert. Un retour vers un écran
+                // déjà vu (bouton retour) ne déclenche rien.
+                val firstSeen = synchronized(windowFirstSeen) { windowFirstSeen[winId] } ?: now
+                val newWindow = firstSeen >= armedAt - 500
+                val sameContent = newWindow && visible.any { it.kind == MaskTarget.KIND_TEXT && textPart(it.key) in textsJustBefore }
+                if (sameContent || (allNew && area * 4 >= screenArea)) {
                     pageGuardAt = 0L
-                    main.post { autoBack() }
+                    main.post { autoBack(if (newWindow) winId else -1) }
                     return
                 }
             }
         }
-        synchronized(seenMaskKeys) { for (t in visible) seenMaskKeys[t.key] = now }
+        synchronized(seenMaskKeys) {
+            for (t in visible) {
+                seenMaskKeys[t.key] = now
+                if (!maskFirstSeen.containsKey(t.key)) maskFirstSeen[t.key] = now
+            }
+        }
     }
 
     /**
@@ -556,13 +659,23 @@ class MindFilterAccessibilityService : AccessibilityService() {
      * masqué) peuvent repérer la même ouverture. Avant, elles revenaient chacune en arrière et
      * on se retrouvait deux écrans plus loin (ex. sur le fil au lieu de la recherche).
      */
-    private fun autoBack() {
+    private fun autoBack(leaveWindow: Int = -1) {
         val now = System.currentTimeMillis()
         if (now - lastAutoBack < 3000) return
         lastAutoBack = now
         pageGuardAt = 0L
         clearGuard()
-        performGlobalAction(GLOBAL_ACTION_BACK)
+        // Petit délai : un « retour » envoyé pendant que le nouvel écran s'ouvre encore est
+        // parfois ignoré par Android. Puis vérification : si l'écran ouvert est toujours là, on
+        // recommence une fois.
+        // Vérification seulement pour une vraie nouvelle fenêtre (pas pour un changement de page
+        // à l'intérieur de la même fenêtre, où un 2e retour irait trop loin).
+        val target = leaveWindow
+        main.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 120)
+        main.postDelayed({
+            val still = try { rootInActiveWindow?.windowId } catch (_: Exception) { null }
+            if (target != -1 && still == target) performGlobalAction(GLOBAL_ACTION_BACK)
+        }, 900)
     }
 
     /** Rejoue sur l'appli un glissement fait sur un bouclier (mode « Bloqué »). */

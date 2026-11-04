@@ -19,8 +19,8 @@ android {
         applicationId = "com.mindfilter.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 50
-        versionName = "0.8.1"
+        versionCode = 52
+        versionName = "0.8.3"
     }
 
     signingConfigs {

@@ -40,6 +40,60 @@ class MaskOverlayManager(
         var shieldLp: WindowManager.LayoutParams? = null
         /** Fenêtre floutée du style « Verre » (Android 12 et plus). */
         var glass: Any? = null
+        /** Thème qui a déclenché le masque (affiché par le bouton « i »). */
+        var label: String = ""
+        /** Petite zone tactile posée sur le bouton « i » (le reste du masque reste traversable). */
+        var info: View? = null
+        var infoLp: WindowManager.LayoutParams? = null
+    }
+
+    /** Appui sur le « i » d'un masque : la catégorie s'affiche à la place de « Masqué ». */
+    private fun showInfo(e: Entry) {
+        val text = com.mindfilter.app.data.TaxonomyIndex.describe(e.label.ifBlank { "Contenu masqué" })
+        e.view.showInfo(text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (e.glass as? GlassWindow)?.showInfo(text)
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun syncInfo(e: Entry, shown: Rect) {
+        val size = (44 * context.resources.displayMetrics.density).toInt()
+        // En mode « Bloqué », le bouclier gère lui-même l'appui sur le « i ».
+        if (shieldsOn || e.pending || e.view.visibility != View.VISIBLE || !e.view.hasInfoBadge() ||
+            shown.width() < size * 2 || shown.height() < size
+        ) {
+            removeInfo(e)
+            return
+        }
+        val lp = e.infoLp ?: newShieldLp().also { e.infoLp = it }
+        lp.x = shown.right - size
+        lp.y = shown.bottom - size
+        lp.width = size
+        lp.height = size
+        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        try {
+            val v = e.info
+            if (v == null) {
+                val iv = View(context)
+                iv.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                iv.setOnTouchListener { _, ev ->
+                    if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) showInfo(e)
+                    true
+                }
+                wm.addView(iv, lp)
+                e.info = iv
+            } else {
+                wm.updateViewLayout(v, lp)
+            }
+        } catch (_: Exception) {
+            removeInfo(e)
+        }
+    }
+
+    private fun removeInfo(e: Entry) {
+        val v = e.info ?: return
+        e.info = null
+        e.infoLp = null
+        try { wm.removeViewImmediate(v) } catch (_: Exception) {}
     }
 
     // --- Style « Couleur » ---------------------------------------------------------------------
@@ -54,14 +108,48 @@ class MaskOverlayManager(
 
     // --- Style « Verre » ----------------------------------------------------------------------
     private var glassOn = false
-    private val glassSupported: Boolean by lazy { GlassWindow.supported(context) }
+    // Le flou « officiel » d'Android (fenêtres floutées) n'est plus utilisé : il ne marchait pas
+    // sur tous les téléphones, et s'il échouait sans prévenir, le contenu restait visible à
+    // travers le voile. Le verre est désormais fait maison (voir applyBackdrop).
+    private val glassSupported: Boolean = false
+    private var fakeGlass = false
+
+    /** Style « Verre » fait maison activé ou non. */
+    fun setFakeGlass(on: Boolean) {
+        if (on == fakeGlass) return
+        fakeGlass = on
+        entries.values.forEach { it.view.setFakeGlass(on) }
+    }
+
+    /**
+     * Nouvelle capture de l'appli (en mémoire, effacée aussitôt) : chaque masque reçoit une
+     * version minuscule (1/32) de ce qu'il couvre, agrandie en douceur : il ne reste que des
+     * taches de couleur, rien n'est lisible. [originX]/[originY] = position de la fenêtre capturée.
+     */
+    fun applyBackdrop(shot: android.graphics.Bitmap, originX: Int, originY: Int) {
+        if (!fakeGlass) return
+        for (e in entries.values) {
+            val r = visiblePart(e.rect, e.clip)
+            r.offset(-originX, -originY)
+            if (!r.intersect(0, 0, shot.width, shot.height) || r.width() < 8 || r.height() < 8) continue
+            try {
+                val tw = maxOf(2, r.width() / 32)
+                val th = maxOf(2, r.height() / 32)
+                val crop = android.graphics.Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
+                val tiny = android.graphics.Bitmap.createScaledBitmap(crop, tw, th, true)
+                if (tiny !== crop) crop.recycle()
+                val soft = android.graphics.Bitmap.createScaledBitmap(tiny, tw * 4, th * 4, true)
+                if (soft !== tiny) tiny.recycle()
+                e.view.setBackdrop(soft)
+            } catch (_: Throwable) {
+            }
+        }
+    }
 
     /** Active ou non le style « Verre » (sans effet si le téléphone ne sait pas flouter). */
     fun setGlass(on: Boolean) {
         val want = on && glassSupported
-        if (on && !glassSupported && GlassWindow.lastError == null) {
-            GlassWindow.lastError = "le téléphone a coupé le flou des fenêtres"
-        }
+
         if (want == glassOn) return
         glassOn = want
         for (e in entries.values) {
@@ -135,7 +223,8 @@ class MaskOverlayManager(
     fun setShieldsEnabled(on: Boolean) {
         if (on == shieldsOn) return
         shieldsOn = on
-        if (on) syncShields() else entries.values.forEach { removeShield(it) }
+        if (!on) entries.values.forEach { removeShield(it) }
+        syncShields()
     }
 
     /** Boucliers traversables pendant [ms] (le temps de rejouer un glissement sur l'appli). */
@@ -148,7 +237,6 @@ class MaskOverlayManager(
 
     /** Un masque a bougé : boucliers inactifs, puis replacés quand tout est immobile. */
     private fun moved() {
-        if (!shieldsOn) return
         setShieldsTouchable(false)
         handler.removeCallbacks(settle)
         handler.postDelayed(settle, SETTLE_MS)
@@ -158,15 +246,26 @@ class MaskOverlayManager(
         if (on == shieldsActive) return
         shieldsActive = on
         for (e in entries.values) {
-            val lp = e.shieldLp ?: continue
-            lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            try { wm.updateViewLayout(e.shield, lp) } catch (_: Exception) {}
+            e.shieldLp?.let { lp ->
+                lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                try { wm.updateViewLayout(e.shield, lp) } catch (_: Exception) {}
+            }
+            e.infoLp?.let { lp ->
+                lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                try { wm.updateViewLayout(e.info, lp) } catch (_: Exception) {}
+            }
         }
     }
 
     private fun syncShields() {
-        if (!shieldsOn) return
+        // Boutons « i » (tous les modes sauf « Bloqué », où le bouclier s'en charge).
+        for (e in entries.values) syncInfo(e, visiblePart(e.rect, e.clip))
+        if (!shieldsOn) {
+            shieldsActive = true
+            return
+        }
         if (SystemClock.uptimeMillis() < shieldsSuspendedUntil) {
             handler.postDelayed(settle, shieldsSuspendedUntil - SystemClock.uptimeMillis())
             return
@@ -188,7 +287,12 @@ class MaskOverlayManager(
             try {
                 val v = e.shield
                 if (v == null) {
-                    val sv = ShieldView(context) { pts -> onShieldSwipe?.invoke(pts) }
+                    val sv = ShieldView(context, onTap = { x, y ->
+                        // Appui sur le « i » (coin bas droit du masque) : catégorie.
+                        val vis = visiblePart(e.rect, e.clip)
+                        val zone = (48 * context.resources.displayMetrics.density).toInt()
+                        if (e.view.hasInfoBadge() && x >= vis.right - zone && y >= vis.bottom - zone) showInfo(e)
+                    }) { pts -> onShieldSwipe?.invoke(pts) }
                     wm.addView(sv, lp)
                     e.shield = sv
                 } else {
@@ -263,6 +367,7 @@ class MaskOverlayManager(
                 }
             }
             e.view.setDark(darkStyle)
+            e.label = t.label
             val nowPending = t.kind == MaskTarget.KIND_PENDING
             // Image d'abord cachée par précaution puis reconnue : c'est un vrai masquage.
             if (e.pending && !nowPending) created++
@@ -393,8 +498,10 @@ class MaskOverlayManager(
         val c = ensureContainer() ?: return false
         val view = MaskView(context, dark, relay)
         view.setHue(hue)
+        view.setFakeGlass(fakeGlass)
         view.setPending(t.kind == MaskTarget.KIND_PENDING)
         val e = Entry(view, Rect(t.rect), Rect(t.clip))
+        e.label = t.label
         val shown = visiblePart(e.rect, e.clip)
         val lp = FrameLayout.LayoutParams(shown.width().coerceAtLeast(1), shown.height().coerceAtLeast(1))
         lp.gravity = Gravity.TOP or Gravity.START
@@ -465,6 +572,7 @@ class MaskOverlayManager(
     private fun remove(key: String) {
         val e = entries.remove(key) ?: return
         removeShield(e)
+        removeInfo(e)
         removeGlass(e)
         if (e.view.visibility == View.VISIBLE && !e.pending) {
             recentlyRemoved.add(visiblePart(e.rect, e.clip) to android.os.SystemClock.uptimeMillis())

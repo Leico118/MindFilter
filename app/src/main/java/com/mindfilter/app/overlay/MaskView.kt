@@ -83,6 +83,51 @@ class MaskView(
         }
     }
 
+    /** Style « Verre » fait maison : image très réduite de ce qu'il y a dessous (taches de
+     *  couleur), agrandie en douceur. null = pas encore de capture → masque opaque. */
+    private var backdrop: android.graphics.Bitmap? = null
+    private var fakeGlass = false
+    private val backdropPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val clipPath = Path()
+    private val dst = RectF()
+
+    fun setFakeGlass(on: Boolean) {
+        if (on == fakeGlass) return
+        fakeGlass = on
+        if (!on) backdrop = null
+        onSizeChanged(width, height, width, height)
+        invalidate()
+    }
+
+    fun setBackdrop(b: android.graphics.Bitmap?) {
+        backdrop = b
+        onSizeChanged(width, height, width, height)
+        invalidate()
+    }
+
+    /** Texte affiché à la place de « Masqué » après un appui sur le « i » (catégorie). */
+    private var infoText: String? = null
+    private val badgeText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        typeface = Typeface.create("serif", Typeface.BOLD_ITALIC)
+        textAlign = Paint.Align.CENTER
+    }
+    private val clearInfo = Runnable {
+        infoText = null
+        invalidate()
+    }
+
+    /** Le masque est-il assez grand pour porter le bouton « i » ? */
+    fun hasInfoBadge(): Boolean = width >= 140f * dp && height >= 60f * dp
+
+    /** Affiche la catégorie pendant quelques secondes, puis revient à « Masqué ». */
+    fun showInfo(text: String) {
+        infoText = text
+        removeCallbacks(clearInfo)
+        postDelayed(clearInfo, 4000)
+        invalidate()
+    }
+
     /** Style « Verre » : voile translucide (le flou est fait par la fenêtre derrière). */
     private var glass = false
 
@@ -116,6 +161,8 @@ class MaskView(
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
         fill.color = when {
+            fakeGlass && backdrop != null && dark -> 0x7318191E
+            fakeGlass && backdrop != null -> 0x66F4F6FA
             glass && dark -> 0x6618191E
             glass -> 0x59F4F6FA
             dark -> 0xFF24262D.toInt()
@@ -163,13 +210,40 @@ class MaskView(
         rect.set(inset, inset, w - inset, h - inset)
         val radius = min(28f * dp, min(w, h) / 2f)
 
+        // Verre fait maison : taches de couleur de ce qu'il y a dessous, puis voile.
+        val bd = backdrop
+        if (fakeGlass && bd != null && !bd.isRecycled) {
+            clipPath.reset()
+            clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW)
+            canvas.save()
+            canvas.clipPath(clipPath)
+            dst.set(0f, 0f, w, h)
+            canvas.drawBitmap(bd, null, dst, backdropPaint)
+            canvas.restore()
+        }
         canvas.drawRoundRect(rect, radius, radius, fill)
         canvas.drawRoundRect(rect, radius, radius, glow)
         canvas.drawRoundRect(rect, radius, radius, sheen)
         canvas.drawRoundRect(rect, radius, radius, border)
 
+        // Petit bouton « i » en bas à droite (s'il y a la place) : le toucher affiche la catégorie.
+        if (hasInfoBadge()) {
+            val r = 11f * dp
+            val bx = w - 20f * dp
+            val by = h - 20f * dp
+            canvas.drawCircle(bx, by, r, capsule)
+            badgeText.textSize = 13f * sp
+            val fm = badgeText.fontMetrics
+            canvas.drawText("i", bx, by - (fm.ascent + fm.descent) / 2f, badgeText)
+        }
+
         // Capsule centrale
-        val label = if (pending) "Analyse…" else "Masqué"
+        var label = infoText ?: if (pending) "Analyse…" else "Masqué"
+        // Texte d'information trop long pour la largeur du masque : raccourci avec « … ».
+        val maxText = w - 16f * dp - 13f * dp * 2 - 24f * dp
+        if (infoText != null && maxText > 40f * dp) {
+            while (label.length > 4 && textPaint.measureText(label) > maxText) label = label.dropLast(2) + "…"
+        }
         val iconW = 18f * dp
         val gap = 6f * dp
         val padH = 13f * dp
