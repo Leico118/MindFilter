@@ -94,7 +94,7 @@ enum class AppStyle(val label: String, val description: String, val previewTop: 
     CONTRASTE("Contraste", "Lisibilité maximale : noir et blanc", 0xFF000000, 0xFFFFFFFF),
 }
 
-enum class MaskStyle(val label: String) { AUTO("Auto"), LIGHT("Clair"), DARK("Sombre"), GLASS("Verre"), COLOR("Couleur") }
+enum class MaskStyle(val label: String) { AUTO("Auto"), LIGHT("Clair"), DARK("Sombre"), COLOR("Couleur") }
 
 enum class TouchMode(val label: String, val description: String) {
     PROTECT(

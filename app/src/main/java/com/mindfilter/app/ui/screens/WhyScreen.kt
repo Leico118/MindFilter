@@ -173,6 +173,23 @@ fun WhyScreen(onBack: () -> Unit) {
                 PillButton("Effacer la liste", Modifier.fillMaxWidth(), filled = false) { MaskLog.clear() }
             }
         }
+        item {
+            GlassCard {
+                Text("Un masquage n'a pas de sens ?", color = g.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Appuyez sur le bouton, retournez dans l'appli sur l'écran concerné et ne bougez plus : environ 8 secondes après l'appui, MindFilter enregistre " +
+                        "la structure de cet écran dans Téléchargements : les blocs, leurs tailles et ce qui a été masqué. Aucun texte " +
+                        "n'est enregistré (chaque texte est remplacé par sa longueur) et rien n'est envoyé : c'est vous qui transmettez le fichier.",
+                    color = g.textSecondary, fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                PillButton("Enregistrer la structure du prochain écran", Modifier.fillMaxWidth(), filled = false) {
+                    com.mindfilter.app.service.ScreenDump.request()
+                    android.widget.Toast.makeText(ctx, "Retournez sur l'écran concerné et attendez une dizaine de secondes", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
         if (allowCount > 0) {
             item {
                 GlassCard {

@@ -332,6 +332,9 @@ object ScreenScanner {
         lookup: (String) -> String?,
         /** Cacher cette image (pas encore jugée) pendant son analyse ? */
         precaution: (String) -> Boolean = { false },
+        /** Cacher aussi les morceaux d'images / vidéos coupés par le bord de l'écran (Reels
+         *  voisins dans un carrousel) : trop petits pour être analysés tant qu'ils n'entrent pas. */
+        hideSlivers: Boolean = false,
     ): List<ImageCandidate> {
         val out = ArrayList<ImageCandidate>()
         val minW = screen.width() * 3 / 10
@@ -359,6 +362,16 @@ object ScreenScanner {
                     (VIDEO_TEXT.containsMatchIn(n.fullText) && n.fullText.length <= 200 &&
                         n.children.all { it.fullText.length <= 60 })
                 )
+            // Morceau d'image coupé par le bord gauche ou droit (élément voisin d'un carrousel) :
+            // caché sans analyse tant qu'il n'est pas assez visible.
+            if (hideSlivers && info != null && !n.offscreen && !textual && !looksLikeImage && !looksLikeVideo &&
+                n.bounds.height() >= minH && n.bounds.width() >= screen.width() / 25 && n.bounds.width() < minW &&
+                (n.bounds.left <= screen.left + 2 || n.bounds.right >= screen.right - 2) &&
+                n.fullText.length <= 120 && n.children.all { it.fullText.length <= 80 } &&
+                n.bounds.height() >= n.bounds.width()
+            ) {
+                n.imageFlag = PENDING_LABEL
+            }
             if ((looksLikeImage || looksLikeVideo) && info != null) {
                 // Identité STABLE de l'image : l'élément qui l'affiche + sa description (différente
                 // pour chaque photo sur Facebook) + sa largeur. Le texte de la publication n'en fait

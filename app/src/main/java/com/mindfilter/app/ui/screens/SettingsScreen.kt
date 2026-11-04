@@ -216,13 +216,12 @@ fun SettingsScreen(resumeTick: Int) {
                 Segmented(MaskStyle.entries.toList(), s.maskStyle, { it.label }) { v -> AppSettings.update { it.copy(maskStyle = v) } }
                 Spacer(Modifier.height(12.dp))
                 val previewDark = when (s.maskStyle) {
-                    MaskStyle.AUTO, MaskStyle.GLASS, MaskStyle.COLOR -> systemDark
+                    MaskStyle.AUTO, MaskStyle.COLOR -> systemDark
                     MaskStyle.DARK -> true
                     MaskStyle.LIGHT -> false
                 }
                 MaskPreview(
                     previewDark,
-                    glass = s.maskStyle == MaskStyle.GLASS,
                     hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null,
                 )
                 if (s.maskStyle == MaskStyle.COLOR) {
@@ -230,17 +229,11 @@ fun SettingsScreen(resumeTick: Int) {
                     com.mindfilter.app.ui.MaskHuePicker(s.maskHue) { h -> AppSettings.update { it.copy(maskHue = h) } }
                 }
                 Spacer(Modifier.height(8.dp))
-                val glassOk = android.os.Build.VERSION.SDK_INT >= 34
                 Text(
-                    when {
-                        s.maskStyle == MaskStyle.COLOR ->
-                            "Masques opaques dans la couleur de votre choix, avec un léger dégradé. Choisissez une teinte toute prête ou faites glisser le curseur sur l'arc-en-ciel."
-                        s.maskStyle != MaskStyle.GLASS ->
-                            "Masques opaques : le contenu dessous est totalement caché. « Verre » le remplace par des taches de couleur très floues : on devine les couleurs, mais rien n'est lisible."
-                        glassOk ->
-                            "Verre : chaque masque montre seulement des taches de couleur très floues de ce qu'il cache, mises à jour environ une fois par seconde quand la page est immobile. Un tout nouveau masque reste opaque une fraction de seconde. La capture reste en mémoire et est effacée aussitôt."
-                        else ->
-                            "Le style Verre demande Android 14 ou plus récent. Les masques restent opaques sur ce téléphone."
+                    if (s.maskStyle == MaskStyle.COLOR) {
+                        "Masques opaques dans la couleur de votre choix, avec un léger dégradé. Choisissez une teinte toute prête ou faites glisser le curseur sur l'arc-en-ciel."
+                    } else {
+                        "Masques opaques : le contenu dessous est totalement caché."
                     },
                     color = g.textSecondary, fontSize = 12.sp,
                 )

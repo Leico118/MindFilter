@@ -263,6 +263,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                     snap, screen, maxHeight,
                     lookup = { vision.labelFor(it) },
                     precaution = { s.imagePrecaution && vision.precautionFor(it) },
+                    hideSlivers = s.imagePrecaution,
                 )
             } catch (e: Exception) {
                 emptyList()
@@ -281,6 +282,19 @@ class MindFilterAccessibilityService : AccessibilityService() {
         if (lastRootWindow != -1 && winId != lastRootWindow) main.post { armPageGuard() }
         lastRootWindow = winId
         checkPageGuard(targets, screen, winId)
+        // Diagnostic demandé dans « Pourquoi c'est masqué ? » : structure de cet écran (sans texte).
+        if (ScreenDump.wanted()) {
+            ScreenDump.requestedUntil = 0L
+            val dump = ScreenDump.build(snap, targets, c, pkg)
+            val saved = ScreenDump.save(this, dump)
+            main.post {
+                android.widget.Toast.makeText(
+                    this,
+                    if (saved != null) "MindFilter : structure enregistrée dans Téléchargements ($saved)" else "MindFilter : enregistrement impossible",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
         // Journal « Pourquoi c'est masqué ? » : thème et mots repérés seulement (pas le texte).
         MaskLog.currentApp = pkg
         for (t in targets) {
@@ -299,28 +313,22 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val dark = when (s.maskStyle) {
             MaskStyle.DARK -> true
             MaskStyle.LIGHT -> false
-            MaskStyle.AUTO, MaskStyle.GLASS, MaskStyle.COLOR -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            MaskStyle.AUTO, MaskStyle.COLOR -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
-        val glass = s.maskStyle == MaskStyle.GLASS
         val hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null
-        main.post { try { renderOnMain(targets, dark, glass, hue, snapAt, snapX, snapY) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "affichage des masques") } }
+        main.post { try { renderOnMain(targets, dark, hue, snapAt, snapX, snapY) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "affichage des masques") } }
     }
 
     private fun renderOnMain(
         targets: List<MaskTarget>,
         dark: Boolean,
-        glass: Boolean,
         hue: Float?,
         snapAt: Long,
         snapX: Int,
         snapY: Int,
     ) {
         run {
-            // Verre fait maison (Android 14+ : capture de l'appli seule, sans nos masques).
-            val fake = glass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-            overlay.setFakeGlass(fake)
-            if (fake && targets.isNotEmpty()) startGlassSampler()
             overlay.setHue(hue)
             if (!settings.protectionEnabled) {
                 overlay.clear()
@@ -347,73 +355,6 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 if (overlay.count > 0) startExitWatch()
             }
             ServiceStatus.currentlyMasked.value = overlay.count
-        }
-    }
-
-    // --- Verre fait maison ------------------------------------------------------------------
-    private var glassSampling = false
-
-    private fun startGlassSampler() {
-        if (glassSampling) return
-        glassSampling = true
-        main.postDelayed(glassTick, 150)
-    }
-
-    /**
-     * Environ une fois par seconde, quand la page est immobile : capture de l'appli seule
-     * (jamais nos masques), réduite aussitôt en taches de couleur pour chaque masque « Verre ».
-     * La capture reste en mémoire et est effacée tout de suite.
-     */
-    private val glassTick: Runnable = object : Runnable {
-        override fun run() {
-            val self: Runnable = this
-            val s = settings
-            if (s.maskStyle != MaskStyle.GLASS || !s.protectionEnabled || overlay.count == 0 ||
-                Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-            ) {
-                glassSampling = false
-                return
-            }
-            if (android.os.SystemClock.uptimeMillis() - lastMoveAt < 350 || replayingGesture) {
-                main.postDelayed(this, 300)
-                return
-            }
-            val root = try { rootInActiveWindow } catch (_: Exception) { null }
-            if (root == null) {
-                main.postDelayed(this, 1000)
-                return
-            }
-            val origin = Rect().also { root.getBoundsInScreen(it) }
-            try {
-                takeScreenshotOfWindow(
-                    root.windowId,
-                    mainExecutor,
-                    object : TakeScreenshotCallback {
-                        override fun onSuccess(result: ScreenshotResult) {
-                            val hb = result.hardwareBuffer
-                            try {
-                                val wrapped = android.graphics.Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
-                                val soft = wrapped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
-                                wrapped?.recycle()
-                                if (soft != null) {
-                                    overlay.applyBackdrop(soft, origin.left, origin.top)
-                                    soft.recycle()
-                                }
-                            } catch (_: Throwable) {
-                            } finally {
-                                hb.close()
-                            }
-                            main.postDelayed(self, 1100)
-                        }
-
-                        override fun onFailure(errorCode: Int) {
-                            main.postDelayed(self, 1500)
-                        }
-                    },
-                )
-            } catch (_: Throwable) {
-                main.postDelayed(this, 2000)
-            }
         }
     }
 
