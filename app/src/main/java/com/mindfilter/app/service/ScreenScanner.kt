@@ -318,6 +318,15 @@ object ScreenScanner {
      *  un morceau de Reel voisin, même collés au bord droit de l'écran. */
     private val CONTROL_TEXT = Regex("(?i)j.?aime|\\blike|r[ée]agi|r[ée]action|comment|partag|share|enregistr|\\bsave|suivre|follow|options|menu|\\bson\\b|audio|musique|remix|envoyer|send")
 
+    private fun longestText(n: SNode): String {
+        var best = n.ownText
+        for (c in n.children) {
+            val t = longestText(c)
+            if (t.length > best.length) best = t
+        }
+        return best
+    }
+
     private fun isControl(n: SNode): Boolean {
         if (CONTROL_TEXT.containsMatchIn(n.fullText)) return true
         var clickable = 0
@@ -427,7 +436,12 @@ object ScreenScanner {
                 n.bounds.width() >= screen.width() * 6 / 10 && n.bounds.height() >= screen.width() * 4 / 10 &&
                 n.bounds.height() <= screen.height() * 6 / 10 && !n.hasScrollable && collectRowLists(n).isEmpty()
             ) {
-                val key = "zone|${info.hashCode()}|${n.bounds.width() / 16}"
+                // Identité de la publication : son texte le plus long (le titre), stable même
+                // quand l'appli recycle ses éléments pendant le défilement (Reddit). Avant, la
+                // même publication revue était réanalysée, donc recachée « Analyse… ».
+                val title = longestText(n)
+                val id = if (title.length >= 12) "t${title.hashCode()}" else "${info.hashCode()}"
+                val key = "zone|$id|${n.bounds.width() / 16}"
                 val label = lookup(key)
                 if (label != null) flag = label else out.add(ImageCandidate(key, info, Rect(n.bounds), zone = true))
             }

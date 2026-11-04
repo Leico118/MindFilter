@@ -278,13 +278,11 @@ class ImageAnalyzer(
                     onNewHit()
                 } else {
                     undecided.add(Triple(c, crop, hash))
+                    // Sans problème à l'analyse rapide : montrée tout de suite, image par image,
+                    // sans attendre les autres images ni la lecture du texte (plus lente).
+                    synchronized(verdicts) { fastClean.add(c.key) }
+                    onNewHit()
                 }
-            }
-            // Les images sans problème à l'analyse rapide sont montrées tout de suite, sans
-            // attendre la lecture du texte (qui peut prendre une seconde).
-            if (undecided.isNotEmpty()) {
-                synchronized(verdicts) { for ((c, _, _) in undecided) fastClean.add(c.key) }
-                onNewHit()
             }
             // 2e passe : lecture du texte dans les images restantes (plus lente).
             for ((c, crop, hash) in undecided) {

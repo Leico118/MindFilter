@@ -580,7 +580,17 @@ class MaskOverlayManager(
         }
         try {
             e.view.animate().cancel()
-            container?.removeView(e.view)
+            val c = container
+            if (e.pending && e.view.visibility == View.VISIBLE && c != null) {
+                // Image jugée sans problème : le masque « Analyse… » s'efface en douceur au
+                // lieu de disparaître d'un coup (moins de clignotements en défilant).
+                val v = e.view
+                v.animate().alpha(0f).setDuration(180).withEndAction {
+                    try { c.removeView(v) } catch (_: Exception) {}
+                }.start()
+            } else {
+                c?.removeView(e.view)
+            }
         } catch (_: Exception) {
         }
     }
