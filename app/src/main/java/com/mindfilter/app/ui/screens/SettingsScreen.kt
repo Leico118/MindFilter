@@ -271,7 +271,7 @@ fun SettingsScreen(resumeTick: Int) {
                         Column(Modifier.weight(1f)) {
                             Text("Cacher les images pendant l'analyse", color = g.text, fontSize = 14.sp)
                             Text(
-                                "Chaque nouvelle image est cachée une fraction de seconde, le temps d'être vérifiée : rien ne s'affiche avant d'être jugé.",
+                                "Chaque nouvelle image est cachée le temps d'être vérifiée (jusqu'à 1,5 s). Plus sûr, mais les images clignotent en apparaissant. Désactivé, une image à masquer peut rester visible un court instant.",
                                 color = g.textSecondary, fontSize = 12.sp,
                             )
                         }

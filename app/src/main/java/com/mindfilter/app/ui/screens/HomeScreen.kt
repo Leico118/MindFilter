@@ -153,7 +153,24 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard("${s.activeCategoryCount}/${TAXONOMY.size}", "catégories actives", Modifier.weight(1f), onOpenCategories)
                 StatCard("${s.monitoredPackages.size}", "applis surveillées", Modifier.weight(1f), onOpenApps)
-                StatCard("$maskedSession", "masqués depuis l'activation", Modifier.weight(1f), null)
+                StatCard("$maskedSession", "masqués depuis l'activation", Modifier.weight(1f)) {
+                    com.mindfilter.app.ui.UiRequests.openWhy.value = true
+                }
+            }
+        }
+
+        item {
+            GlassCard(onClick = { com.mindfilter.app.ui.UiRequests.openWhy.value = true }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Pourquoi c'est masqué ?", color = g.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Voir la raison des derniers masquages et corriger une erreur.",
+                            color = g.textSecondary, fontSize = 13.sp,
+                        )
+                    }
+                    Text("›", color = g.textSecondary, fontSize = 26.sp)
+                }
             }
         }
 

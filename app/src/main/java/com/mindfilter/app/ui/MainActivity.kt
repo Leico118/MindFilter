@@ -127,6 +127,8 @@ object UiRequests {
     val openUpdate = MutableStateFlow(false)
     /** Ouvrir l'écran « Apprentissage » du mode développeur. */
     val openLearning = MutableStateFlow(false)
+    /** Ouvrir « Pourquoi c'est masqué ? ». */
+    val openWhy = MutableStateFlow(false)
     /** Faire défiler les Réglages jusqu'à la carte « Mise à jour ». */
     val scrollToUpdate = MutableStateFlow(false)
 }
@@ -213,7 +215,15 @@ private fun MindFilterRoot(resumeTick: Int) {
                 }
             }
         }
-        if (openCategory == null && !imeVisible && !learning) {
+        val why by UiRequests.openWhy.collectAsStateWithLifecycle()
+        if (why && !learning) {
+            Box(Modifier.fillMaxSize().background(LocalGlass.current.bgTop)) {
+                GlassBackground {
+                    com.mindfilter.app.ui.screens.WhyScreen(onBack = { UiRequests.openWhy.value = false })
+                }
+            }
+        }
+        if (openCategory == null && !imeVisible && !learning && !why) {
             GlassTabBar(
                 selected = tab,
                 onSelect = { tab = it },

@@ -11,6 +11,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
 import com.mindfilter.app.engine.ContentClassifier
+import com.mindfilter.app.service.MaskLog
 import java.util.concurrent.Executor
 
 /**
@@ -59,7 +60,7 @@ class ImageAnalyzer(
     /** Hauteur à laquelle chaque image a été jugée « sans problème » (pour la rejuger si elle
      *  n'était qu'en partie visible). */
     private val cleanHeights = HashMap<String, Int>()
-    private var learnedRevision = -1
+    @Volatile private var learnedRevision = -1
     /** Première apparition de chaque image (le masquage préventif ne dure jamais plus de 3 s). */
     private val firstSeen = object : LinkedHashMap<String, Long>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 600
@@ -75,22 +76,38 @@ class ImageAnalyzer(
     }
 
     /** null = pas encore analysée, "" = sans problème, sinon libellé du thème reconnu. */
-    fun statusFor(key: String): String? = synchronized(verdicts) { verdicts[key] }
+    fun statusFor(key: String): String? {
+        checkRevisions()
+        return synchronized(verdicts) { verdicts[key] }
+    }
+
+    /** Une correction faite dans le journal (ou un nouvel apprentissage) s'applique tout de suite. */
+    private fun checkRevisions() {
+        val rev = LearnedExamples.revision + ImageAllowList.revision * 100_000
+        if (rev != learnedRevision && learnedRevision != -1) {
+            learnedRevision = rev
+            reset()
+        }
+    }
 
     fun labelFor(key: String): String? = statusFor(key)?.takeIf { it.isNotEmpty() }
 
     /**
      * Faut-il cacher cette image en attendant son analyse ? Seulement si la capture de fenêtre
-     * fonctionne (sinon le masque gênerait l'analyse), et jamais plus de 3 secondes.
+     * fonctionne (sinon le masque gênerait l'analyse), et jamais plus d'une seconde et demie.
      */
     fun precautionFor(key: String): Boolean {
         if (!windowCapture || known(key)) return false
         val now = SystemClock.uptimeMillis()
         val first = synchronized(firstSeen) { firstSeen.getOrPut(key) { now } }
-        return now - first < 3000
+        return now - first < 1500
     }
 
-    private fun known(key: String) = synchronized(verdicts) { verdicts.containsKey(key) }
+    private fun known(key: String) = synchronized(verdicts) { verdicts.containsKey(key) || key in fastClean }
+
+    /** Images passées sans problème par l'analyse rapide (la lecture du texte vient ensuite) :
+     *  le masque provisoire est retiré sans attendre cette lecture, beaucoup plus lente. */
+    private val fastClean = HashSet<String>()
 
     /** À (re)analyser : jamais vue, ou jugée sans problème alors qu'elle était peu visible. */
     private fun needsAnalysis(c: Candidate): Boolean = synchronized(verdicts) {
@@ -215,22 +232,45 @@ class ImageAnalyzer(
             val undecided = ArrayList<Triple<Candidate, Bitmap, Long>>()
             for ((c, crop) in crops) {
                 val hash = dHash(crop)
-                val cached = synchronized(byHash) { byHash[hash] }
-                val label = cached ?: fastAnalyze(crop)
-                if (label.isNotEmpty() || cached != null) {
-                    if (cached == null) synchronized(byHash) { byHash[hash] = label }
-                    setVerdict(c, label, crop.height)
+                // Image signalée « pas à masquer » dans le journal : on la laisse.
+                if (ImageAllowList.isAllowed(service, hash)) {
+                    setVerdict(c, "", crop.height)
                     crop.recycle()
-                    if (label.isNotEmpty()) onNewHit()
+                    continue
+                }
+                val cached = synchronized(byHash) { byHash[hash] }
+                if (cached != null) {
+                    setVerdict(c, cached, crop.height)
+                    crop.recycle()
+                    if (cached.isNotEmpty()) {
+                        MaskLog.logImage(c.key, cached, "même image que lors d'un masquage précédent", emptyList(), hash, null)
+                        onNewHit()
+                    }
+                    continue
+                }
+                val v = fastAnalyze(crop, isBigVideo(c))
+                if (v.label.isNotEmpty()) {
+                    synchronized(byHash) { byHash[hash] = v.label }
+                    setVerdict(c, v.label, crop.height)
+                    MaskLog.logImage(c.key, v.label, v.detail, v.words, hash, v.vector)
+                    crop.recycle()
+                    onNewHit()
                 } else {
                     undecided.add(Triple(c, crop, hash))
                 }
             }
+            // Les images sans problème à l'analyse rapide sont montrées tout de suite, sans
+            // attendre la lecture du texte (qui peut prendre une seconde).
+            if (undecided.isNotEmpty()) {
+                synchronized(verdicts) { for ((c, _, _) in undecided) fastClean.add(c.key) }
+                onNewHit()
+            }
             // 2e passe : lecture du texte dans les images restantes (plus lente).
             for ((c, crop, hash) in undecided) {
-                val label = textAnalyze(crop)
-                synchronized(byHash) { byHash[hash] = label }
-                setVerdict(c, label, crop.height)
+                val v = textAnalyze(crop)
+                synchronized(byHash) { byHash[hash] = v.label }
+                setVerdict(c, v.label, crop.height)
+                if (v.label.isNotEmpty()) MaskLog.logImage(c.key, v.label, v.detail, v.words, hash, null)
                 crop.recycle()
             }
             // Les images sans problème cachées préventivement peuvent réapparaître.
@@ -246,9 +286,16 @@ class ImageAnalyzer(
         if (rest.isNotEmpty()) request(rest)
     }
 
+    /** Vidéo ou image plein écran (Reels, Stories…) : jugée plus prudemment. */
+    private fun isBigVideo(c: Candidate): Boolean {
+        val dm = service.resources.displayMetrics
+        return c.bounds.height() >= dm.heightPixels * 6 / 10
+    }
+
     private fun setVerdict(c: Candidate, label: String, height: Int) {
         synchronized(verdicts) {
             verdicts[c.key] = label
+            fastClean.remove(c.key)
             if (label.isEmpty()) cleanHeights[c.key] = height else cleanHeights.remove(c.key)
         }
         VisionStats.analyzed++
@@ -272,61 +319,94 @@ class ImageAnalyzer(
             if (windowCapture) " · capture fenêtre ✓" else ""
         LearnedExamples.ensureLoaded(service)
         // Apprentissage modifié (mode développeur) : on rejuge les images.
-        if (LearnedExamples.revision != learnedRevision) {
-            learnedRevision = LearnedExamples.revision
+        if (LearnedExamples.revision + ImageAllowList.revision * 100_000 != learnedRevision) {
+            learnedRevision = LearnedExamples.revision + ImageAllowList.revision * 100_000
             reset()
         }
     }
 
+    /** Résultat d'une analyse : thème (vide = sans problème) et explication pour le journal. */
+    private class Verdict(
+        val label: String,
+        val detail: String = "",
+        val words: List<String> = emptyList(),
+        val vector: FloatArray? = null,
+    ) {
+        companion object {
+            val CLEAN = Verdict("")
+        }
+    }
+
     /** Vérifications rapides : contenus pour adultes, exemples appris, objets. */
-    private fun fastAnalyze(img: Bitmap): String {
+    private fun fastAnalyze(img: Bitmap, bigVideo: Boolean): Verdict {
         val themes = enabledThemes
         // Détecteur de contenus pour adultes (si un thème « adultes » est coché)
         if (themes.any { it.startsWith("adulte.") }) {
             val sc = nsfw?.takeIf { it.available }?.score(img) ?: -1f
             if (sc >= 0f) {
                 VisionStats.lastNsfw = "${(sc * 100).toInt()} %"
-                if (sc >= NsfwDetector.thresholdFor(restrictionLevel)) return "Contenu pour adultes (image)"
+                // Vidéos plein écran (Reels…) : une seule image de la vidéo est vue, souvent floue
+                // ou en mouvement. On exige un peu plus de certitude.
+                val need = NsfwDetector.thresholdFor(restrictionLevel) + if (bigVideo) 0.07f else 0f
+                if (sc >= need.coerceAtMost(0.95f)) {
+                    return Verdict("Contenu pour adultes (image)", "détecteur de contenus pour adultes : ${(sc * 100).toInt()} %")
+                }
             }
         }
         // Ressemblance avec les exemples appris : image entière ET son centre (une image
         // affichée dans une appli est souvent recadrée).
+        var mainVector: FloatArray? = null
         embedder?.takeIf { it.available }?.let { emb ->
             val vectors = ArrayList<FloatArray>(2)
             emb.embed(img)?.let { vectors.add(it) }
+            mainVector = vectors.firstOrNull()
             if (img.width >= 60 && img.height >= 60) {
                 val center = Bitmap.createBitmap(img, img.width / 10, img.height / 10, img.width * 8 / 10, img.height * 8 / 10)
                 emb.embed(center)?.let { vectors.add(it) }
                 if (center !== img) center.recycle()
             }
             var best: LearnedExamples.Match? = null
+            var bestVector: FloatArray? = null
             for (v in vectors) {
                 LearnedExamples.scores(v).firstOrNull()?.let { (t, sim) ->
                     VisionStats.lastBest = "${if (t.isEmpty()) "Sans problème" else com.mindfilter.app.data.TaxonomyIndex.themeName(t)} ${(sim * 100).toInt()} %"
                 }
                 val m = LearnedExamples.match(v, themes)
-                if (m != null && (best == null || m.similarity > best.similarity)) best = m
+                if (m != null && (best == null || m.similarity > best.similarity)) {
+                    best = m
+                    bestVector = v
+                }
             }
-            best?.let { m -> return "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)" }
+            best?.let { m ->
+                return Verdict(
+                    "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)",
+                    "ressemble à vos images apprises : ${(m.similarity * 100).toInt()} %",
+                    vector = bestVector,
+                )
+            }
         }
-        // Objets reconnus
-        objects?.takeIf { it.available }?.recognize(img)?.forEach { (name, p) ->
-            val rule = ImageLabels.ruleFor(name) ?: return@forEach
-            if (p >= rule.minProbability && rule.themeId in themes) return rule.label
+        // Objets reconnus : seulement l'objet le plus probable, et s'il est très net.
+        objects?.takeIf { it.available }?.recognize(img, top = 1)?.firstOrNull()?.let { (name, p) ->
+            val rule = ImageLabels.ruleFor(name)
+            if (rule != null && rule.themeId in themes && p >= maxOf(rule.minProbability, ImageLabels.MIN_CONFIDENCE)) {
+                return Verdict(rule.label, "objet reconnu : $name (${(p * 100).toInt()} %)", vector = mainVector)
+            }
         }
-        return ""
+        return Verdict("", vector = mainVector)
     }
 
     /** Texte écrit dans l'image (mèmes, captures d'articles…). */
-    private fun textAnalyze(img: Bitmap): String {
+    private fun textAnalyze(img: Bitmap): Verdict {
         // Image réduite : la lecture est bien plus rapide et reste fiable pour un texte lisible.
         val src = if (img.width > 900) Bitmap.createScaledBitmap(img, 900, img.height * 900 / img.width, true) else img
         val text = reader?.takeIf { it.available }?.read(src).orEmpty()
         if (src !== img) src.recycle()
         if (text.length >= 8) {
-            classifier?.classify(text)?.let { return "${it.label} (texte de l'image)" }
+            classifier?.classify(text)?.let {
+                return Verdict("${it.label} (texte de l'image)", "texte lu dans l'image", it.words)
+            }
         }
-        return ""
+        return Verdict.CLEAN
     }
 
     /** Empreinte visuelle (dHash 64 bits) : identique pour la même image, même redimensionnée. */
@@ -352,6 +432,7 @@ class ImageAnalyzer(
         synchronized(verdicts) {
             verdicts.clear()
             cleanHeights.clear()
+            fastClean.clear()
         }
         synchronized(byHash) { byHash.clear() }
     }

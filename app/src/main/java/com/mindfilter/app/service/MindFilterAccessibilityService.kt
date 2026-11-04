@@ -133,6 +133,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                // Appui récent sur un masque : un défilement l'annule (sauf si l'écran a changé).
+                if (guardUntil != 0L && !checkGuard()) clearGuard()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     // Suivi immédiat du défilement. Le décalage est aussi cumulé pour corriger
                     // les analyses faites pendant le mouvement (sinon les masques « reculent »).
@@ -156,6 +158,9 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 requestScan(0)
             }
             else -> {
+                // Certaines applis (Facebook…) changent d'écran sans le signaler comme une
+                // nouvelle fenêtre : on vérifie si l'élément touché a disparu.
+                if (guardUntil != 0L) checkGuard()
                 if (overlay.count > 0) tracker.poke()
                 requestScan(16)
             }
@@ -235,6 +240,13 @@ class MindFilterAccessibilityService : AccessibilityService() {
             ScreenScanner.findTargets(snap, c, screen, maxHeight)
         } catch (e: Exception) {
             emptyList()
+        }
+        // Journal « Pourquoi c'est masqué ? » : thème et mots repérés seulement (pas le texte).
+        MaskLog.currentApp = pkg
+        for (t in targets) {
+            if (t.kind != MaskTarget.KIND_TEXT) continue
+            if (!Rect.intersects(t.rect, t.clip)) continue
+            MaskLog.logText(t.key, t.label, t.words)
         }
         if (vision != null) com.mindfilter.app.vision.VisionStats.candidates = images.size
         if (vision != null && images.isNotEmpty()) {
@@ -379,9 +391,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
     /** Jusqu'à quand un nouvel écran ouvert doit être refermé (appui sur un masque). */
     private var guardUntil = 0L
+    /** Élément touché sous un masque, et sa fenêtre : s'il disparaît, un écran s'est ouvert. */
+    private var guardNode: android.view.accessibility.AccessibilityNodeInfo? = null
+    private var guardWindow = -1
 
     private fun onClickEvent(event: AccessibilityEvent) {
-        if (settings.touchMode != TouchMode.PROTECT || overlay.count == 0) return
+        if (settings.touchMode != TouchMode.PROTECT) return
         val src = try {
             event.source
         } catch (e: Exception) {
@@ -390,19 +405,56 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val r = Rect()
         src.getBoundsInScreen(r)
         if (r.isEmpty) return
-        val inside = overlay.hits(r.centerX(), r.centerY()) ||
-            (overlay.hits(r.left + r.width() / 4, r.top + r.height() / 4) &&
-                overlay.hits(r.right - r.width() / 4, r.bottom - r.height() / 4))
-        if (inside) guardUntil = System.currentTimeMillis() + 1500
+        // hitsRecent : compte aussi les masques retirés il y a un instant (la page peut déjà
+        // avoir commencé à changer quand Android nous signale l'appui).
+        val inside = overlay.hitsRecent(r.centerX(), r.centerY()) ||
+            (overlay.hitsRecent(r.left + r.width() / 4, r.top + r.height() / 4) &&
+                overlay.hitsRecent(r.right - r.width() / 4, r.bottom - r.height() / 4))
+        if (!inside) return
+        guardUntil = System.currentTimeMillis() + 1500
+        guardNode = src
+        guardWindow = src.windowId
+        // L'appui a peut-être déjà ouvert l'écran : vérification immédiate et un peu après.
+        main.postDelayed({ if (guardUntil != 0L) checkGuard() }, 250)
+        main.postDelayed({ if (guardUntil != 0L) checkGuard() }, 700)
+    }
+
+    /**
+     * L'élément touché sous un masque a-t-il disparu (nouvel écran ouvert) ? Si oui, retour
+     * arrière immédiat. Renvoie true si le retour a été fait.
+     */
+    private fun checkGuard(): Boolean {
+        if (guardUntil == 0L) return false
+        if (System.currentTimeMillis() > guardUntil) {
+            clearGuard()
+            return false
+        }
+        val n = guardNode ?: return false
+        val gone = try {
+            !n.refresh() || !n.isVisibleToUser ||
+                (rootInActiveWindow?.windowId?.let { it != guardWindow } ?: false)
+        } catch (e: Exception) {
+            true
+        }
+        if (!gone) return false
+        clearGuard()
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        return true
+    }
+
+    private fun clearGuard() {
+        guardUntil = 0L
+        guardNode = null
+        guardWindow = -1
     }
 
     private fun onWindowChanged() {
         if (guardUntil != 0L && System.currentTimeMillis() <= guardUntil) {
-            guardUntil = 0L
+            clearGuard()
             // La publication masquée a été ouverte par un appui : on revient en arrière.
             performGlobalAction(GLOBAL_ACTION_BACK)
         } else {
-            guardUntil = 0L
+            clearGuard()
         }
     }
 

@@ -11,7 +11,13 @@ import java.text.Normalizer
 import java.util.Locale
 
 /** Résultat d'une détection : le thème reconnu et son score. */
-data class MatchResult(val id: String, val label: String, val score: Int)
+data class MatchResult(
+    val id: String,
+    val label: String,
+    val score: Int,
+    /** Mots qui ont déclenché le masquage (affichés dans « Pourquoi c'est masqué ? »). */
+    val words: List<String> = emptyList(),
+)
 
 /**
  * Point d'extension : [KeywordClassifier] est le moteur rapide. Un futur modèle local de
@@ -308,6 +314,7 @@ class KeywordClassifier(
         }
 
         var best: MatchResult? = null
+        var bestTheme: CompiledTheme? = null
         for (t in compiled) {
             val custom = t.fixedThreshold != null
             if (blocked && !custom && !t.ignoreContext) continue
@@ -319,9 +326,25 @@ class KeywordClassifier(
             val threshold = (t.fixedThreshold ?: level.threshold) + if (custom || t.ignoreContext) 0 else penalty
             if (score >= threshold && (best == null || score > best.score)) {
                 best = MatchResult(t.id, t.label, score)
+                bestTheme = t
             }
         }
-        return best
+        val bt = bestTheme ?: return best
+        // Mots repérés (au plus 5), pour expliquer le masquage à l'utilisateur.
+        val words = LinkedHashSet<String>()
+        for (rule in bt.rules) {
+            if (words.size >= 5) break
+            if (!matches(rule, tokens, ::positions)) continue
+            for (g in rule.groups) {
+                for (a in g) {
+                    if (!tokens.present(a)) continue
+                    val m = a.regex.find(norm) ?: continue
+                    words.add(m.value.trim())
+                    break
+                }
+            }
+        }
+        return best?.copy(words = words.filter { it.isNotEmpty() }.take(5))
     }
 
     /**

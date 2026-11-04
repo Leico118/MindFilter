@@ -30,6 +30,8 @@ class MaskOverlayManager(
     private class Entry(val view: MaskView, val rect: Rect, val clip: Rect) {
         /** Moment (uptime) de la dernière position lue en direct par le suivi. */
         var trackedAt = 0L
+        /** Masque provisoire (image en cours d'analyse) : pas compté comme masquage. */
+        var pending = false
     }
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -63,11 +65,16 @@ class MaskOverlayManager(
                     entries[t.key] = e
                     e.trackedAt = 0L
                 } else {
-                    if (add(t)) created++
+                    if (add(t) && t.kind != MaskTarget.KIND_PENDING) created++
                     continue
                 }
             }
             e.view.setDark(darkStyle)
+            val nowPending = t.kind == MaskTarget.KIND_PENDING
+            // Image d'abord cachée par précaution puis reconnue : c'est un vrai masquage.
+            if (e.pending && !nowPending) created++
+            e.pending = nowPending
+            e.view.setPending(nowPending)
             if (e.trackedAt > snapshotAt) {
                 // Le suivi en direct a une position plus récente que cette analyse : on la garde.
                 if (e.clip != t.clip) {
@@ -190,12 +197,14 @@ class MaskOverlayManager(
     private fun add(t: MaskTarget): Boolean {
         val c = ensureContainer() ?: return false
         val view = MaskView(context, dark, relay)
+        view.setPending(t.kind == MaskTarget.KIND_PENDING)
         val e = Entry(view, Rect(t.rect), Rect(t.clip))
         val shown = visiblePart(e.rect, e.clip)
         val lp = FrameLayout.LayoutParams(shown.width().coerceAtLeast(1), shown.height().coerceAtLeast(1))
         lp.gravity = Gravity.TOP or Gravity.START
         return try {
             c.addView(view, lp)
+            e.pending = t.kind == MaskTarget.KIND_PENDING
             entries[t.key] = e
             place(e)
             // Apparition très courte : le contenu n'a pas le temps d'être lu.
@@ -239,8 +248,23 @@ class MaskOverlayManager(
         e.view.visibility == View.VISIBLE && visiblePart(e.rect, e.clip).contains(x, y)
     }
 
+    /** Masques retirés il y a moins d'une demi-seconde (zone visible + moment). */
+    private val recentlyRemoved = ArrayList<Pair<Rect, Long>>()
+
+    /** Comme [hits], en comptant aussi les masques retirés il y a un instant. */
+    fun hitsRecent(x: Int, y: Int): Boolean {
+        if (hits(x, y)) return true
+        val limit = android.os.SystemClock.uptimeMillis() - 500
+        recentlyRemoved.removeAll { it.second < limit }
+        return recentlyRemoved.any { it.first.contains(x, y) }
+    }
+
     private fun remove(key: String) {
         val e = entries.remove(key) ?: return
+        if (e.view.visibility == View.VISIBLE && !e.pending) {
+            recentlyRemoved.add(visiblePart(e.rect, e.clip) to android.os.SystemClock.uptimeMillis())
+            if (recentlyRemoved.size > 30) recentlyRemoved.removeAt(0)
+        }
         try {
             e.view.animate().cancel()
             container?.removeView(e.view)

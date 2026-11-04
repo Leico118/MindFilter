@@ -37,7 +37,17 @@ data class MaskTarget(
     val clip: Rect,
     val label: String,
     val node: AccessibilityNodeInfo? = null,
-)
+    /** Mots qui ont déclenché le masquage (masquage par le texte). */
+    val words: List<String> = emptyList(),
+    /** Origine : [KIND_TEXT], [KIND_IMAGE] ou [KIND_PENDING] (image en cours d'analyse). */
+    val kind: Int = KIND_TEXT,
+) {
+    companion object {
+        const val KIND_TEXT = 0
+        const val KIND_IMAGE = 1
+        const val KIND_PENDING = 2
+    }
+}
 
 /**
  * Parcourt l'arbre d'accessibilité de l'application au premier plan et décide
@@ -141,7 +151,7 @@ object ScreenScanner {
                     val r = Rect(t.rect)
                     r.intersect(t.clip) && r.contains(visible.centerX(), visible.centerY())
                 }
-                if (!covered) add(n, clip, label, out, usedKeys)
+                if (!covered) add(n, clip, label, out, usedKeys, kind = if (label == PENDING_LABEL) MaskTarget.KIND_PENDING else MaskTarget.KIND_IMAGE)
             }
         }
         for (c in n.children) addFlaggedImages(c, childClip, out, usedKeys)
@@ -175,6 +185,19 @@ object ScreenScanner {
             val match = classifier.classify(n.fullText)
                 ?: n.flagLabel?.let { MatchResult("image", it, 4) }
                 ?: return false
+            // Liste de lignes semblables (historique de recherche, liste de groupes, menu…) :
+            // chaque ligne est indépendante. On ne masque que les lignes concernées, et rien si
+            // aucune ligne ne l'est à elle seule (des mots de lignes différentes ne doivent pas
+            // se combiner).
+            val list = findRowList(n)
+            if (list != null && n.flagLabel == null) {
+                var any = false
+                for (c in list.children) {
+                    if (c.fullText.isBlank()) continue
+                    if (classifier.classify(c.fullText) != null && visit(c, childClip, classifier, maxHeight, out, usedKeys)) any = true
+                }
+                return any
+            }
             // Grand bloc qui contient PLUSIEURS éléments concernés chacun de son côté : c'est
             // une liste de publications (ex. résultats de recherche), pas une seule publication.
             // On masque alors chaque élément séparément plutôt que tout le bloc.
@@ -193,7 +216,7 @@ object ScreenScanner {
                     if (any) return true
                 }
             }
-            add(n, clip, match.label, out, usedKeys)
+            add(n, clip, match.label, out, usedKeys, match.words, if (match.id == "image") MaskTarget.KIND_IMAGE else MaskTarget.KIND_TEXT)
             return true
         }
         var any = false
@@ -207,11 +230,34 @@ object ScreenScanner {
         var added = false
         for (c in n.children) {
             if (c.fullText.isNotBlank() && c.bounds.height() <= maxHeight) {
-                add(c, childClip, match.label, out, usedKeys)
+                add(c, childClip, match.label, out, usedKeys, match.words)
                 added = true
             }
         }
         return added
+    }
+
+    /**
+     * Cherche dans [n] (lui-même ou un descendant proche qui porte l'essentiel du texte) une
+     * liste de lignes semblables : au moins 4 lignes de texte de même type et de hauteur
+     * voisine, sans grande image. Une publication (en-tête, texte, photo, boutons) n'en est pas une.
+     */
+    internal fun findRowList(n: SNode, depth: Int = 0): SNode? {
+        if (depth > 3) return null
+        val textKids = n.children.filter { it.fullText.isNotBlank() }
+        if (textKids.size >= 4) {
+            val heights = textKids.map { it.bounds.height() }.sorted()
+            val med = heights[heights.size / 2].coerceAtLeast(1)
+            val mainClass = textKids.groupingBy { it.className }.eachCount().maxByOrNull { it.value }?.key
+            val rows = textKids.count { it.className == mainClass && it.bounds.height() in (med / 2)..(med * 2) }
+            val bigImage = n.children.any { it.fullText.isBlank() && it.bounds.height() >= n.bounds.height() / 4 }
+            if (rows >= 4 && rows * 10 >= textKids.size * 7 && !bigImage) return n
+        }
+        // Descendre dans l'enfant qui porte l'essentiel du texte (le titre « Récentes » à côté).
+        val total = n.fullText.length.coerceAtLeast(1)
+        val main = textKids.maxByOrNull { it.fullText.length } ?: return null
+        if (main.fullText.length * 10 < total * 6) return null
+        return findRowList(main, depth + 1)
     }
 
     /** [zone] = publication entière dont l'appli ne signale pas l'image (Reddit…) : l'image
@@ -265,7 +311,9 @@ object ScreenScanner {
                 } else {
                     out.add(ImageCandidate(key, info, Rect(n.bounds)))
                     // Image encore inconnue : cachée le temps de l'analyse (sans marquer la publication).
-                    if (precaution(key)) n.imageFlag = PENDING_LABEL
+                    // Pas pour les vidéos plein écran (Reels, Stories) : on ne cache pas tout l'écran
+                    // à chaque nouvelle vidéo.
+                    if (n.bounds.height() < screen.height() * 6 / 10 && precaution(key)) n.imageFlag = PENDING_LABEL
                 }
             }
             for (c in n.children) {
@@ -289,7 +337,15 @@ object ScreenScanner {
         return out
     }
 
-    private fun add(n: SNode, clip: Rect, label: String, out: MutableList<MaskTarget>, usedKeys: MutableSet<String>) {
+    private fun add(
+        n: SNode,
+        clip: Rect,
+        label: String,
+        out: MutableList<MaskTarget>,
+        usedKeys: MutableSet<String>,
+        words: List<String> = emptyList(),
+        kind: Int = MaskTarget.KIND_TEXT,
+    ) {
         val visible = Rect(n.bounds)
         if (!visible.intersect(clip)) {
             // Publication préchargée hors de l'écran : masque préparé (invisible pour l'instant),
@@ -298,7 +354,7 @@ object ScreenScanner {
             var key = n.className + "|" + n.fullText.take(160).hashCode()
             var i = 1
             while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
-            out.add(MaskTarget(key, Rect(n.bounds), Rect(clip), label, n.info))
+            out.add(MaskTarget(key, Rect(n.bounds), Rect(clip), label, n.info, words, kind))
             return
         }
         if (visible.height() < 24 || visible.width() < 48) return
@@ -309,7 +365,7 @@ object ScreenScanner {
         var key = n.className + "|" + n.fullText.take(160).hashCode()
         var i = 1
         while (!usedKeys.add(key)) key = key.substringBefore('#') + "#" + i++
-        out.add(MaskTarget(key, full, Rect(clip), label, n.info))
+        out.add(MaskTarget(key, full, Rect(clip), label, n.info, words, kind))
     }
 
     /**

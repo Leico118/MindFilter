@@ -72,6 +72,16 @@ class MaskView(
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
+    /** Image en cours d'analyse : capsule « Analyse… » au lieu de « Masqué ». */
+    private var pending = false
+
+    fun setPending(value: Boolean) {
+        if (value != pending) {
+            pending = value
+            invalidate()
+        }
+    }
+
     fun setDark(value: Boolean) {
         if (value != dark) {
             dark = value
@@ -122,7 +132,7 @@ class MaskView(
         canvas.drawRoundRect(rect, radius, radius, border)
 
         // Capsule centrale
-        val label = "Masqué"
+        val label = if (pending) "Analyse…" else "Masqué"
         val iconW = 18f * dp
         val gap = 6f * dp
         val padH = 13f * dp

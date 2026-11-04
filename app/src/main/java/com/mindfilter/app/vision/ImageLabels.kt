@@ -10,7 +10,7 @@ object ImageLabels {
 
     private val SPIDERS = listOf(
         "black and gold garden spider", "barn spider", "garden spider", "black widow", "tarantula",
-        "wolf spider", "european garden spider", "spider web",
+        "wolf spider", "european garden spider",
     )
     private val SNAKES = listOf(
         "thunder snake", "ringneck snake", "hognose snake", "green snake", "king snake", "garter snake",
@@ -18,7 +18,10 @@ object ImageLabels {
         "green mamba", "sea snake", "horned viper", "diamondback", "sidewinder",
     )
     private val WEAPONS = listOf("assault rifle", "rifle", "revolver")
-    private val WAR = listOf("tank", "missile", "warplane", "military uniform", "cannon", "projectile", "half track")
+    // Retirés car trop souvent reconnus à tort : « military uniform » (n'importe quelle veste
+    // sombre), « projectile » (feux d'artifice), « spider web » (grillages, dentelle),
+    // « syringe » (stylos).
+    private val WAR = listOf("tank", "missile", "warplane", "cannon", "half track")
 
     private val rules: Map<String, Rule> = buildMap {
         SPIDERS.forEach { put(it, Rule("horreur.phobies.araignees", "Araignées (image)", 0.45f)) }
@@ -29,8 +32,13 @@ object ImageLabels {
         put("volcano", Rule("catastrophes.geo.volcans", "Volcans (image)", 0.6f))
         put("ambulance", Rule("sante.urgences.hospit", "Urgences (image)", 0.6f))
         put("stretcher", Rule("sante.urgences.hospit", "Urgences (image)", 0.6f))
-        put("syringe", Rule("sante.urgences.hospit", "Soins (image)", 0.6f))
     }
 
     fun ruleFor(label: String): Rule? = rules[label.trim().lowercase()]
+
+    /**
+     * Probabilité minimale réellement exigée : le modèle d'objets se trompe souvent sur les
+     * photos de personnes et les vidéos. On exige donc au moins 70 %.
+     */
+    const val MIN_CONFIDENCE = 0.70f
 }
