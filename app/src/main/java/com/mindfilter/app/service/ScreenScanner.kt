@@ -332,9 +332,9 @@ object ScreenScanner {
         lookup: (String) -> String?,
         /** Cacher cette image (pas encore jugée) pendant son analyse ? */
         precaution: (String) -> Boolean = { false },
-        /** Cacher aussi les morceaux d'images / vidéos coupés par le bord de l'écran (Reels
-         *  voisins dans un carrousel) : trop petits pour être analysés tant qu'ils n'entrent pas. */
-        hideSlivers: Boolean = false,
+        /** Analyser aussi les morceaux d'images / vidéos coupés par le bord de l'écran (Reels
+         *  voisins dans un carrousel) : masqués seulement s'ils posent vraiment problème. */
+        analyzeSlivers: Boolean = true,
     ): List<ImageCandidate> {
         val out = ArrayList<ImageCandidate>()
         val minW = screen.width() * 3 / 10
@@ -362,15 +362,23 @@ object ScreenScanner {
                     (VIDEO_TEXT.containsMatchIn(n.fullText) && n.fullText.length <= 200 &&
                         n.children.all { it.fullText.length <= 60 })
                 )
-            // Morceau d'image coupé par le bord gauche ou droit (élément voisin d'un carrousel) :
-            // caché sans analyse tant qu'il n'est pas assez visible.
-            if (hideSlivers && info != null && !n.offscreen && !textual && !looksLikeImage && !looksLikeVideo &&
-                n.bounds.height() >= minH && n.bounds.width() >= screen.width() / 25 && n.bounds.width() < minW &&
+            // Morceau d'image ou de vidéo coupé par le bord gauche ou droit (Reel voisin dans un
+            // carrousel) : analysé comme une vidéo (revérifié pendant la lecture), mais jamais
+            // caché « par précaution » : il n'est masqué que s'il pose vraiment problème.
+            val sliver = analyzeSlivers && info != null && !n.offscreen && !textual && !looksLikeImage && !looksLikeVideo &&
+                n.bounds.height() >= minH && n.bounds.width() >= screen.width() / 10 && n.bounds.width() < minW &&
                 (n.bounds.left <= screen.left + 2 || n.bounds.right >= screen.right - 2) &&
                 n.fullText.length <= 120 && n.children.all { it.fullText.length <= 80 } &&
                 n.bounds.height() >= n.bounds.width()
-            ) {
-                n.imageFlag = PENDING_LABEL
+            if (sliver && info != null) {
+                val key = "${info.hashCode()}|${n.ownText.take(80).hashCode()}|bord"
+                val label = lookup(key)
+                if (label != null) {
+                    flag = label
+                    n.imageFlag = label
+                } else {
+                    out.add(ImageCandidate(key, info, Rect(n.bounds), video = true))
+                }
             }
             if ((looksLikeImage || looksLikeVideo) && info != null) {
                 // Identité STABLE de l'image : l'élément qui l'affiche + sa description (différente
