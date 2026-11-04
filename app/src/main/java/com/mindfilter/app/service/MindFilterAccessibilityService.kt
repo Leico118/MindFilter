@@ -262,7 +262,9 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 ScreenScanner.markImages(
                     snap, screen, maxHeight,
                     lookup = { vision.labelFor(it) },
-                    precaution = { s.imagePrecaution && vision.precautionFor(it) },
+                    // Plus aucune image n'est cachée « par précaution » pendant son analyse : seules
+                    // les images reconnues sont masquées (les masques « Analyse… » gênaient trop).
+                    precaution = { false },
                 )
             } catch (e: Exception) {
                 emptyList()
