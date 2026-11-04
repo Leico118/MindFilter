@@ -183,7 +183,7 @@ class MaskTracker(
                         if (t.key in readKeys || t.key in lostKeys) continue
                         val st = states.getValue(t.key)
                         st.raw.offset(mdx, mdy)
-                        st.mask.offset(mdx, mdy)
+                        ScreenScanner.shiftMask(st.mask, mdx, mdy, clip)
                     }
                 }
 

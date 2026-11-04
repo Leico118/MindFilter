@@ -155,7 +155,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> onClickEvent(event)
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 onWindowChanged()
+                armPageGuard()
                 requestScan(0)
+            }
+            // Saisie au clavier : seul le moment compte (le texte tapé n'est jamais lu).
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                val editable = try { event.source?.isEditable == true } catch (e: Exception) { false }
+                if (editable) lastTypingAt = System.currentTimeMillis()
+                requestScan(16)
             }
             else -> {
                 // Certaines applis (Facebook…) changent d'écran sans le signaler comme une
@@ -241,6 +248,11 @@ class MindFilterAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             emptyList()
         }
+        // Changement d'écran que l'appli n'a pas signalé (Facebook…) : nouvelle fenêtre.
+        val winId = root.windowId
+        if (lastRootWindow != -1 && winId != lastRootWindow) main.post { armPageGuard() }
+        lastRootWindow = winId
+        checkPageGuard(targets, screen)
         // Journal « Pourquoi c'est masqué ? » : thème et mots repérés seulement (pas le texte).
         MaskLog.currentApp = pkg
         for (t in targets) {
@@ -254,7 +266,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
             vision.enabledThemes = s.enabledThemes
             vision.restrictionLevel = s.restrictionLevel
             vision.maskedAreas = targets.map { t -> Rect(t.rect).also { r -> if (!r.intersect(t.clip)) r.setEmpty() } }
-            vision.request(images.map { com.mindfilter.app.vision.ImageAnalyzer.Candidate(it.key, it.node, it.bounds, it.zone) })
+            vision.request(images.map { com.mindfilter.app.vision.ImageAnalyzer.Candidate(it.key, it.node, it.bounds, it.zone, it.video) })
         }
         val dark = when (s.maskStyle) {
             MaskStyle.DARK -> true
@@ -271,7 +283,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val lateY = scrollAccumY.get() - snapY
                 val lateX = scrollAccumX.get() - snapX
                 val placed = if (lateX == 0 && lateY == 0) targets else targets.map { t ->
-                    t.copy(rect = Rect(t.rect).apply { offset(-lateX, -lateY) })
+                    t.copy(rect = Rect(t.rect).apply { ScreenScanner.shiftMask(this, -lateX, -lateY, t.clip) })
                 }
                 val created = overlay.render(placed, dark, snapAt)
                 // Les publications masquées sont ensuite suivies en direct pendant le défilement.
@@ -440,6 +452,59 @@ class MindFilterAccessibilityService : AccessibilityService() {
         clearGuard()
         performGlobalAction(GLOBAL_ACTION_BACK)
         return true
+    }
+
+    // --- 2e protection : nouvel écran dont le contenu principal est masqué ----------------
+    //
+    // Toutes les applis ne signalent pas les appuis (Facebook, souvent). Si, juste après un
+    // changement d'écran alors que des masques étaient affichés, le nouvel écran est surtout
+    // fait de contenus masqués JAMAIS vus jusque-là, c'est qu'un contenu masqué vient d'être
+    // ouvert : retour arrière. Un retour vers un écran déjà vu (contenus connus) ou une
+    // recherche tapée au clavier ne déclenchent rien.
+
+    @Volatile private var lastTypingAt = 0L
+    @Volatile private var lastRootWindow = -1
+    @Volatile private var pageGuardAt = 0L
+    @Volatile private var lastAutoBack = 0L
+    /** Masques affichés récemment (clé → moment) : pour reconnaître un écran déjà vu. */
+    private val seenMaskKeys = object : LinkedHashMap<String, Long>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 400
+    }
+    @Volatile private var keysBeforeChange: Set<String> = emptySet()
+
+    /** Appelé sur le fil principal quand l'écran change. */
+    private fun armPageGuard() {
+        if (settings.touchMode != TouchMode.PROTECT) return
+        val now = System.currentTimeMillis()
+        if (overlay.count == 0 || now - lastTypingAt < 4000 || now - lastAutoBack < 3000) return
+        keysBeforeChange = synchronized(seenMaskKeys) { seenMaskKeys.keys.toHashSet() }
+        pageGuardAt = now
+    }
+
+    /** Appelé sur le fil d'analyse, après chaque lecture de l'écran. */
+    private fun checkPageGuard(targets: List<MaskTarget>, screen: Rect) {
+        val visible = targets.filter { it.kind != MaskTarget.KIND_PENDING && Rect.intersects(it.rect, it.clip) }
+        val now = System.currentTimeMillis()
+        val armedAt = pageGuardAt
+        if (armedAt != 0L) {
+            if (now - armedAt > 2500 || now - lastTypingAt < 4000) {
+                pageGuardAt = 0L
+            } else if (visible.isNotEmpty()) {
+                val area = visible.sumOf { t ->
+                    val r = Rect(t.rect)
+                    if (r.intersect(t.clip)) r.width().toLong() * r.height() else 0L
+                }
+                val screenArea = (screen.width().toLong() * screen.height()).coerceAtLeast(1L)
+                val allNew = visible.none { it.key in keysBeforeChange }
+                if (allNew && area * 4 >= screenArea) {
+                    pageGuardAt = 0L
+                    lastAutoBack = now
+                    main.post { performGlobalAction(GLOBAL_ACTION_BACK) }
+                    return
+                }
+            }
+        }
+        synchronized(seenMaskKeys) { for (t in visible) seenMaskKeys[t.key] = now }
     }
 
     private fun clearGuard() {

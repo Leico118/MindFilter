@@ -108,7 +108,7 @@ class MaskOverlayManager(
         for (e in entries.values) {
             // Masques suivis en direct : leur position est déjà exacte, on n'y touche pas.
             if (e.trackedAt > recent) continue
-            e.rect.offset(dx, dy)
+            com.mindfilter.app.service.ScreenScanner.shiftMask(e.rect, dx, dy, e.clip)
             place(e)
         }
     }

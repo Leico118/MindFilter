@@ -34,7 +34,14 @@ class ImageAnalyzer(
     /** Appelé dès qu'un résultat change ce qui doit être masqué (pour relancer l'analyse de l'écran). */
     private val onNewHit: () -> Unit,
 ) {
-    class Candidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect, val zone: Boolean = false)
+    class Candidate(
+        val key: String,
+        val node: AccessibilityNodeInfo,
+        val bounds: Rect,
+        val zone: Boolean = false,
+        /** Vidéo : revérifiée régulièrement pendant la lecture (une seule image ne suffit pas). */
+        val video: Boolean = false,
+    )
 
     private val thread = HandlerThread("mindfilter-vision").also { it.start() }
     private val handler = Handler(thread.looper)
@@ -60,6 +67,8 @@ class ImageAnalyzer(
     /** Hauteur à laquelle chaque image a été jugée « sans problème » (pour la rejuger si elle
      *  n'était qu'en partie visible). */
     private val cleanHeights = HashMap<String, Int>()
+    /** Moment où chaque vidéo a été jugée sans problème (revérifiée ensuite toutes les ~1,5 s). */
+    private val cleanAt = HashMap<String, Long>()
     @Volatile private var learnedRevision = -1
     /** Première apparition de chaque image (le masquage préventif ne dure jamais plus de 3 s). */
     private val firstSeen = object : LinkedHashMap<String, Long>(256, 0.75f, true) {
@@ -74,6 +83,8 @@ class ImageAnalyzer(
     private val byHash = object : LinkedHashMap<Long, String>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, String>?) = size > 600
     }
+
+    private val videoTick = Runnable { onNewHit() }
 
     /** null = pas encore analysée, "" = sans problème, sinon libellé du thème reconnu. */
     fun statusFor(key: String): String? {
@@ -113,6 +124,8 @@ class ImageAnalyzer(
     private fun needsAnalysis(c: Candidate): Boolean = synchronized(verdicts) {
         val v = verdicts[c.key] ?: return@synchronized true
         if (v.isNotEmpty()) return@synchronized false
+        // Vidéo en cours de lecture : nouvelle vérification d'une autre image de la vidéo.
+        if (c.video && SystemClock.uptimeMillis() - (cleanAt[c.key] ?: 0L) > VIDEO_RECHECK_MS) return@synchronized true
         val h = cleanHeights[c.key] ?: return@synchronized false
         c.bounds.height() > h * 13 / 10
     }
@@ -120,6 +133,12 @@ class ImageAnalyzer(
     /** Nouvelles images visibles : capture dès que possible. */
     fun request(candidates: List<Candidate>) {
         VisionStats.candidates = candidates.size
+        // Vidéos visibles : l'écran peut ne rien signaler pendant la lecture, on redemande donc
+        // nous-mêmes une analyse un peu plus tard pour vérifier la suite de la vidéo.
+        if (candidates.any { it.video }) {
+            handler.removeCallbacks(videoTick)
+            handler.postDelayed(videoTick, VIDEO_RECHECK_MS + 50)
+        }
         val todo = candidates.filter { needsAnalysis(it) }
         if (todo.isEmpty()) return
         pending = todo
@@ -267,7 +286,10 @@ class ImageAnalyzer(
             }
             // 2e passe : lecture du texte dans les images restantes (plus lente).
             for ((c, crop, hash) in undecided) {
-                val v = textAnalyze(crop)
+                // Vidéo déjà vérifiée une fois : la lecture du texte (lente) n'est pas refaite à
+                // chaque nouvelle image de la vidéo, seule l'analyse rapide l'est.
+                val recheck = c.video && synchronized(verdicts) { cleanAt.containsKey(c.key) }
+                val v = if (recheck) Verdict.CLEAN else textAnalyze(crop)
                 synchronized(byHash) { byHash[hash] = v.label }
                 setVerdict(c, v.label, crop.height)
                 if (v.label.isNotEmpty()) MaskLog.logImage(c.key, v.label, v.detail, v.words, hash, null)
@@ -297,6 +319,7 @@ class ImageAnalyzer(
             verdicts[c.key] = label
             fastClean.remove(c.key)
             if (label.isEmpty()) cleanHeights[c.key] = height else cleanHeights.remove(c.key)
+            if (label.isEmpty() && c.video) cleanAt[c.key] = SystemClock.uptimeMillis() else cleanAt.remove(c.key)
         }
         VisionStats.analyzed++
         if (label.isNotEmpty()) {
@@ -432,6 +455,7 @@ class ImageAnalyzer(
         synchronized(verdicts) {
             verdicts.clear()
             cleanHeights.clear()
+            cleanAt.clear()
             fastClean.clear()
         }
         synchronized(byHash) { byHash.clear() }
@@ -450,5 +474,7 @@ class ImageAnalyzer(
     companion object {
         /** Android limite les captures d'un service d'accessibilité (~3 par seconde). */
         const val MIN_INTERVAL_MS = 340L
+        /** Une vidéo visible est revérifiée à cet intervalle tant qu'elle n'est pas masquée. */
+        const val VIDEO_RECHECK_MS = 1500L
     }
 }

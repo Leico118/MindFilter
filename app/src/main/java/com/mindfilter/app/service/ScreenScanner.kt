@@ -262,7 +262,18 @@ object ScreenScanner {
 
     /** [zone] = publication entière dont l'appli ne signale pas l'image (Reddit…) : l'image
      *  sera cherchée directement dans la capture. */
-    class ImageCandidate(val key: String, val node: AccessibilityNodeInfo, val bounds: Rect, val zone: Boolean = false)
+    class ImageCandidate(
+        val key: String,
+        val node: AccessibilityNodeInfo,
+        val bounds: Rect,
+        val zone: Boolean = false,
+        /** Vidéo : son contenu change, elle est revérifiée régulièrement pendant la lecture. */
+        val video: Boolean = false,
+    )
+
+    /** Indices qu'un élément affiche une vidéo (type d'élément ou description). */
+    private val VIDEO_CLASS = Regex("(?i)video|textureview|surfaceview|exoplayer|playerview")
+    private val VIDEO_TEXT = Regex("(?i)\\bvid[ée]os?\\b|lecteur vid|lire la vid|play video|\\breels?\\b|activer le son|désactiver le son|couper le son|unmute|\\bmute\\b|\\b\\d{1,2}:\\d{2}\\b")
 
     /**
      * Repère les images visibles (éléments sans texte, assez grands) et marque les blocs dont
@@ -298,7 +309,15 @@ object ScreenScanner {
                 ("image" in cls || n.ownText.length <= 250) &&
                 n.children.none { it.fullText.isNotBlank() && !it.className.lowercase().contains("image") } &&
                 n.bounds.width() >= minW && n.bounds.height() >= minH
-            if (looksLikeImage && info != null) {
+            // Vidéo : lecteur reconnu par son type, ou grand bloc décrit comme une vidéo avec
+            // seulement de courts boutons (son, durée…) par-dessus.
+            val big = n.bounds.width() >= minW && n.bounds.height() >= minH
+            val looksLikeVideo = info != null && !n.offscreen && !textual && big && (
+                VIDEO_CLASS.containsMatchIn(n.className) ||
+                    (VIDEO_TEXT.containsMatchIn(n.fullText) && n.fullText.length <= 200 &&
+                        n.children.all { it.fullText.length <= 60 })
+                )
+            if ((looksLikeImage || looksLikeVideo) && info != null) {
                 // Identité STABLE de l'image : l'élément qui l'affiche + sa description (différente
                 // pour chaque photo sur Facebook) + sa largeur. Le texte de la publication n'en fait
                 // plus partie : il change pendant le défilement (en-tête qui sort de l'écran…), ce
@@ -309,7 +328,7 @@ object ScreenScanner {
                     flag = label
                     n.imageFlag = label
                 } else {
-                    out.add(ImageCandidate(key, info, Rect(n.bounds)))
+                    out.add(ImageCandidate(key, info, Rect(n.bounds), video = looksLikeVideo))
                     // Image encore inconnue : cachée le temps de l'analyse (sans marquer la publication).
                     // Pas pour les vidéos plein écran (Reels, Stories) : on ne cache pas tout l'écran
                     // à chaque nouvelle vidéo.
@@ -372,10 +391,19 @@ object ScreenScanner {
      * Zone du masque à partir de la position d'un élément : s'il touche un bord de la liste
      * (publication coupée), on prolonge au-delà du bord pour couvrir la partie encore cachée.
      */
+    /** Déplace un masque du déplacement du contenu ([dx], [dy]). */
+    fun shiftMask(r: Rect, dx: Int, dy: Int, @Suppress("UNUSED_PARAMETER") clip: Rect) {
+        r.offset(dx, dy)
+    }
+
     fun maskRect(bounds: Rect, clip: Rect): Rect {
         val full = Rect(bounds)
         if (!Rect.intersects(bounds, clip)) return full
-        val extra = clip.height()
+        // Prolongement limité : deux fois la partie visible, au moins un quart de la liste, au
+        // plus sa hauteur. Avant, il valait toujours une hauteur d'écran : une petite ligne
+        // coupée par le bord devenait un masque géant dès qu'elle entrait dans l'écran. Le
+        // suivi relit la vraie position quelques images plus tard et ajuste le masque.
+        val extra = minOf(clip.height(), maxOf(bounds.height() * 2, clip.height() / 4))
         if (full.bottom >= clip.bottom - 3) full.bottom += extra
         if (full.top <= clip.top + 3) full.top -= extra
         return full
