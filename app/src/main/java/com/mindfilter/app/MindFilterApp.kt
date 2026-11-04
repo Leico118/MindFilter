@@ -6,6 +6,7 @@ import com.mindfilter.app.data.AppSettings
 class MindFilterApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         AppSettings.init(this)
     }
 }

@@ -52,7 +52,14 @@ class MindFilterAccessibilityService : AccessibilityService() {
     @Volatile private var lastScanAt = 0L
     private var replayingGesture = false
 
-    private val scanRunnable = Runnable { scan() }
+    private val scanRunnable = Runnable {
+        try {
+            scan()
+        } catch (e: Throwable) {
+            scanPending = false
+            com.mindfilter.app.CrashLog.record(this, e, "lecture de l'écran")
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -60,13 +67,21 @@ class MindFilterAccessibilityService : AccessibilityService() {
         worker = HandlerThread("mindfilter-scan").also { it.start() }
         workerHandler = Handler(worker.looper)
         overlay = MaskOverlayManager(this, dragRelay)
-        overlay.onShieldSwipe = { pts -> replaySwipe(pts) }
+        overlay.onShieldSwipe = { pts ->
+            try { replaySwipe(pts) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "défilement sur un masque") }
+        }
         overlay.setShieldsEnabled(settings.touchMode == TouchMode.BLOCK)
         tracker = MaskTracker(
             frameMs = frameIntervalMs(),
             screenHeight = { resources.displayMetrics.heightPixels },
         ) { updates, lost, at ->
-            main.post { if (::overlay.isInitialized) overlay.applyTracked(updates, lost, at) }
+            main.post {
+                try {
+                    if (::overlay.isInitialized) overlay.applyTracked(updates, lost, at)
+                } catch (e: Throwable) {
+                    com.mindfilter.app.CrashLog.record(this, e, "suivi des masques")
+                }
+            }
         }
 
         // Après un redémarrage du téléphone, Android relance automatiquement ce service.
@@ -125,6 +140,15 @@ class MindFilterAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Une erreur ici ne doit jamais arrêter le service (Android le couperait) : elle est notée.
+        try {
+            handleEvent(event)
+        } catch (e: Throwable) {
+            com.mindfilter.app.CrashLog.record(this, e, "événement")
+        }
+    }
+
+    private fun handleEvent(event: AccessibilityEvent?) {
         event ?: return
         if (!::overlay.isInitialized) return
         val s = settings
@@ -279,7 +303,19 @@ class MindFilterAccessibilityService : AccessibilityService() {
         }
         val glass = s.maskStyle == MaskStyle.GLASS
         val hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null
-        main.post {
+        main.post { try { renderOnMain(targets, dark, glass, hue, snapAt, snapX, snapY) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "affichage des masques") } }
+    }
+
+    private fun renderOnMain(
+        targets: List<MaskTarget>,
+        dark: Boolean,
+        glass: Boolean,
+        hue: Float?,
+        snapAt: Long,
+        snapX: Int,
+        snapY: Int,
+    ) {
+        run {
             overlay.setGlass(glass)
             overlay.setHue(hue)
             if (!settings.protectionEnabled) {

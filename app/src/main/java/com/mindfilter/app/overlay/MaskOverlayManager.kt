@@ -67,29 +67,46 @@ class MaskOverlayManager(
         }
     }
 
+    /** Le flou a échoué une fois sur ce téléphone : masques opaques jusqu'au redémarrage. */
+    private var glassBroken = false
+
     private fun placeGlass(e: Entry, shown: Rect) {
-        if (!glassOn || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        if (!glassOn || glassBroken || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             e.view.alpha = 1f
             return
         }
-        val g = (e.glass as? GlassWindow) ?: GlassWindow(context, dark).also { e.glass = it }
-        g.setDark(dark)
-        g.setPending(e.pending)
-        if (shown.isEmpty) {
-            g.hide()
+        try {
+            val g = (e.glass as? GlassWindow) ?: GlassWindow(context, dark).also { e.glass = it }
+            g.setDark(dark)
+            g.setPending(e.pending)
+            if (shown.isEmpty) {
+                g.hide()
+                return
+            }
+            if (!g.place(Rect(shown))) throw IllegalStateException("fenêtre floutée refusée")
+        } catch (t: Throwable) {
+            // Quoi qu'il arrive, le masque opaque reste en place : rien ne s'affiche dessous.
+            glassBroken = true
+            entries.values.forEach { removeGlass(it) }
+            e.view.alpha = 1f
             return
         }
-        g.place(Rect(shown))
         // Le masque opaque reste dessous un court instant, le temps que la fenêtre floutée
         // apparaisse (rien n'est visible entre les deux), puis il s'efface.
         if (e.view.alpha > 0f) e.view.postDelayed({ if (e.glass != null) e.view.alpha = 0f }, 120)
     }
 
     private fun removeGlass(e: Entry) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (e.glass as? GlassWindow)?.dismiss()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (e.glass as? GlassWindow)?.dismiss()
+        } catch (_: Throwable) {
+        }
         e.glass = null
         e.view.alpha = 1f
     }
+
+    /** Le style « Verre » fonctionne-t-il réellement (pour l'afficher dans les Réglages) ? */
+    val glassWorking: Boolean get() = glassOn && !glassBroken
 
     // --- Boucliers (mode « Bloqué ») ----------------------------------------------------------
     // Chaque masque visible reçoit une petite fenêtre invisible qui absorbe les appuis. Pendant
@@ -102,7 +119,7 @@ class MaskOverlayManager(
     private var shieldsActive = true
     private var shieldsSuspendedUntil = 0L
     private val handler = Handler(Looper.getMainLooper())
-    private val settle = Runnable { syncShields() }
+    private val settle = Runnable { try { syncShields() } catch (_: Throwable) {} }
 
     fun setShieldsEnabled(on: Boolean) {
         if (on == shieldsOn) return

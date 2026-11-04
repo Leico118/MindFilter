@@ -79,6 +79,7 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
     val maskedSession by ServiceStatus.maskedThisSession.collectAsStateWithLifecycle()
     val serviceEnabled = remember(resumeTick, connected) { Permissions.isAccessibilityEnabled(ctx) || connected }
 
+    var crash by remember(resumeTick) { mutableStateOf(com.mindfilter.app.CrashLog.read(ctx)) }
     val active = s.protectionEnabled && serviceEnabled
     val statusColor by animateColorAsState(
         when {
@@ -95,6 +96,34 @@ fun HomeScreen(resumeTick: Int, onOpenCategories: () -> Unit, onOpenApps: () -> 
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { ScreenTitle("MindFilter", "Vos fils d'actualité, sans ce qui vous angoisse.") }
+
+        if (crash != null) {
+            item {
+                GlassCard {
+                    Text("MindFilter s'est arrêté à cause d'une erreur", color = g.warning, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Si plus rien n'est masqué, Android a coupé le service : réactivez-le avec le bouton ci-dessous " +
+                            "(MindFilter → désactiver puis réactiver). Copiez aussi le rapport et envoyez-le pour que l'erreur soit corrigée : " +
+                            "il ne contient que l'endroit du programme où elle s'est produite, rien de ce qui était affiché.",
+                        color = g.textSecondary, fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PillButton("Copier le rapport", Modifier.fillMaxWidth()) {
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Rapport MindFilter", crash))
+                        android.widget.Toast.makeText(ctx, "Rapport copié", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    PillButton("Réactiver le service", Modifier.fillMaxWidth(), filled = false) { Permissions.openAccessibilitySettings(ctx) }
+                    Spacer(Modifier.height(8.dp))
+                    PillButton("Masquer ce message", Modifier.fillMaxWidth(), filled = false) {
+                        com.mindfilter.app.CrashLog.clear(ctx)
+                        crash = null
+                    }
+                }
+            }
+        }
 
         item {
             GlassCard(modifier = Modifier.tutorialAnchor("home_status"), padding = 20.dp) {

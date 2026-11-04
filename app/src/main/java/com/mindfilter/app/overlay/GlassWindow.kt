@@ -62,22 +62,22 @@ class GlassWindow(context: Context, dark: Boolean) {
 
     fun setPending(value: Boolean) = view.setPending(value)
 
-    /** Place la fenêtre sur la zone visible du masque (coordonnées écran). */
-    fun place(r: Rect) {
-        if (lp.x == r.left && lp.y == r.top && lp.width == r.width() && lp.height == r.height() && shown) return
+    /** Place la fenêtre sur la zone visible du masque (coordonnées écran). false = refusée. */
+    fun place(r: Rect): Boolean {
+        if (lp.x == r.left && lp.y == r.top && lp.width == r.width() && lp.height == r.height() && shown) return true
         lp.x = r.left
         lp.y = r.top
         lp.width = r.width().coerceAtLeast(1)
         lp.height = r.height().coerceAtLeast(1)
-        try {
+        return try {
+            dialog.window?.attributes = lp
             if (!shown) {
-                dialog.window?.attributes = lp
                 dialog.show()
                 shown = true
-            } else {
-                dialog.window?.attributes = lp
             }
-        } catch (_: Exception) {
+            true
+        } catch (_: Throwable) {
+            false
         }
     }
 

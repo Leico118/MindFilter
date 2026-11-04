@@ -26,6 +26,15 @@ class ShieldView(context: Context, private val onSwipe: (List<TouchPoint>) -> Un
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        try {
+            handle(event)
+        } catch (_: Throwable) {
+            points.clear()
+        }
+        return true
+    }
+
+    private fun handle(event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 points.clear()
@@ -33,6 +42,7 @@ class ShieldView(context: Context, private val onSwipe: (List<TouchPoint>) -> Un
                 points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
             }
             MotionEvent.ACTION_MOVE -> {
+                if (points.isEmpty()) points.add(TouchPoint(event.rawX, event.rawY, event.eventTime))
                 for (i in 0 until event.historySize) {
                     val dx = event.getHistoricalX(i) - event.x
                     val dy = event.getHistoricalY(i) - event.y
@@ -50,6 +60,5 @@ class ShieldView(context: Context, private val onSwipe: (List<TouchPoint>) -> Un
             }
             MotionEvent.ACTION_CANCEL -> points.clear()
         }
-        return true
     }
 }
