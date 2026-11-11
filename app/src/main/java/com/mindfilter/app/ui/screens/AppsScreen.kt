@@ -73,7 +73,7 @@ private fun loadApps(context: Context): List<InstalledApp> {
     }
     return infos
         .map { it.activityInfo }
-        .filter { it.packageName != context.packageName }
+        .filter { it.packageName != context.packageName && it.packageName !in com.mindfilter.app.data.EXCLUDED_PACKAGES }
         .distinctBy { it.packageName }
         .map { ai ->
             val icon = try {

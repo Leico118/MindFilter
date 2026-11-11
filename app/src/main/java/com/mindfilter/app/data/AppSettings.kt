@@ -155,9 +155,13 @@ val DEFAULT_MONITORED: Set<String> = setOf(
     "com.android.chrome",           // Chrome
     "com.twitter.android",          // X
     "com.reddit.frontpage",         // Reddit
-    "com.google.android.googlequicksearchbox", // Google Discover
     "com.google.android.apps.magazines",       // Google Actualités
     "org.mozilla.firefox",          // Firefox
+)
+
+/** Applis jamais surveillées ni proposées (l'appli Google héberge aussi Gemini). */
+val EXCLUDED_PACKAGES: Set<String> = setOf(
+    "com.google.android.googlequicksearchbox",
 )
 
 /**
@@ -207,7 +211,7 @@ object AppSettings {
             protectionEnabled = prefs.getBoolean("protection", d.protectionEnabled),
             enabledThemes = prefs.getStringSet("themes", d.enabledThemes)?.toSet()
                 ?.filter { it in TaxonomyIndex.allThemeIds }?.toSet() ?: d.enabledThemes,
-            monitoredPackages = prefs.getStringSet("packages", d.monitoredPackages)?.toSet() ?: d.monitoredPackages,
+            monitoredPackages = (prefs.getStringSet("packages", d.monitoredPackages)?.toSet() ?: d.monitoredPackages) - EXCLUDED_PACKAGES,
             restrictionLevel = if (prefs.contains("filterLevel")) {
                 prefs.getInt("filterLevel", d.restrictionLevel).coerceIn(RestrictionLevels.MIN, RestrictionLevels.MAX)
             } else if (prefs.contains("restrictionLevel")) {
@@ -277,7 +281,7 @@ object AppSettings {
     }
 
     fun setPackageMonitored(pkg: String, monitored: Boolean) = update {
-        it.copy(monitoredPackages = if (monitored) it.monitoredPackages + pkg else it.monitoredPackages - pkg)
+        it.copy(monitoredPackages = (if (monitored) it.monitoredPackages + pkg else it.monitoredPackages - pkg) - EXCLUDED_PACKAGES)
     }
 
     fun upsertFilter(f: CustomFilter) = update { s ->
