@@ -57,6 +57,15 @@ class NsfwDetector(ctx: Context) {
     companion object {
         private const val SIZE = 224
 
+        /** Au-delà, le détecteur est presque certain : rien ne peut annuler le masquage. */
+        const val CERTAIN = 0.92f
+
+        /**
+         * Confirmation minimale d'une ressemblance avec les images apprises (contenus pour
+         * adultes). Une construction LEGO ou un paysage restent très en dessous (< 5 %).
+         */
+        const val CONFIRM = 0.15f
+
         /** Seuil selon le niveau de filtrage choisi (plus strict = masque plus tôt). */
         fun thresholdFor(level: Int): Float = when {
             level <= 2 -> 0.88f

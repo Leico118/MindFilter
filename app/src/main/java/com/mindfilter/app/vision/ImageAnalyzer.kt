@@ -360,20 +360,41 @@ class ImageAnalyzer(
         }
     }
 
-    /** Vérifications rapides : contenus pour adultes, exemples appris, objets. */
+    /**
+     * Vérifications rapides : contenus pour adultes, exemples appris, objets.
+     *
+     * Depuis la 0.9.2, un masquage n'est jamais décidé sur un seul indice fragile :
+     *  - l'objet le plus probable de l'image (reconnaissance d'objets) sert de « deuxième avis » :
+     *    une construction LEGO, un jouet, un paysage, un monument ou un plat ne sont jamais
+     *    masqués sur une simple ressemblance ;
+     *  - une ressemblance avec les images apprises (contenus pour adultes) doit être confirmée
+     *    par le détecteur de nudité, sauf ressemblance vraiment très forte ;
+     *  - un objet reconnu (araignée, arme…) doit être net ET nettement devant les autres objets.
+     */
     private fun fastAnalyze(img: Bitmap, bigVideo: Boolean): Verdict {
         val themes = enabledThemes
+        // Deuxième avis : les 5 objets les plus probables (calculé une seule fois).
+        val top = objects?.takeIf { it.available }?.recognize(img, top = 5).orEmpty()
+        val safeScene = ImageLabels.safeSceneScore(top)
+        val safeName = top.firstOrNull { ImageLabels.isSafeScene(it.first) }?.first
+        if (top.isNotEmpty()) {
+            VisionStats.lastObjects = top.take(3).joinToString(", ") { "${it.first} ${(it.second * 100).toInt()} %" }
+        }
+
         // Détecteur de contenus pour adultes (si un thème « adultes » est coché)
-        if (themes.any { it.startsWith("adulte.") }) {
-            val sc = nsfw?.takeIf { it.available }?.score(img) ?: -1f
-            if (sc >= 0f) {
-                VisionStats.lastNsfw = "${(sc * 100).toInt()} %"
-                // Vidéos plein écran (Reels…) : une seule image de la vidéo est vue, souvent floue
-                // ou en mouvement. On exige un peu plus de certitude.
-                val need = NsfwDetector.thresholdFor(restrictionLevel) + if (bigVideo) 0.07f else 0f
-                if (sc >= need.coerceAtMost(0.95f)) {
-                    return Verdict("Contenu pour adultes (image)", "détecteur de contenus pour adultes : ${(sc * 100).toInt()} %")
-                }
+        val adultOn = themes.any { it.startsWith("adulte.") }
+        val nsfwScore = if (adultOn) nsfw?.takeIf { it.available }?.score(img) ?: -1f else -1f
+        if (nsfwScore >= 0f) {
+            VisionStats.lastNsfw = "${(nsfwScore * 100).toInt()} %"
+            // Vidéos plein écran (Reels…) : une seule image de la vidéo est vue, souvent floue
+            // ou en mouvement. On exige un peu plus de certitude.
+            val need = (NsfwDetector.thresholdFor(restrictionLevel) + if (bigVideo) 0.07f else 0f).coerceAtMost(0.95f)
+            // Paysage (sable, dunes, couchers de soleil aux tons « peau »), jouet ou monument très
+            // nettement reconnu : le détecteur se trompe souvent sur ces images, il doit alors
+            // être presque certain.
+            val sceneVeto = safeScene >= ImageLabels.SCENE_VETO_STRONG && nsfwScore < NsfwDetector.CERTAIN
+            if (nsfwScore >= need && !sceneVeto) {
+                return Verdict("Contenu pour adultes (image)", "détecteur de contenus pour adultes : ${(nsfwScore * 100).toInt()} %")
             }
         }
         // Ressemblance avec les exemples appris : image entière ET son centre (une image
@@ -401,17 +422,39 @@ class ImageAnalyzer(
                 }
             }
             best?.let { m ->
-                return Verdict(
-                    "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)",
-                    "ressemble à vos images apprises : ${(m.similarity * 100).toInt()} %",
-                    vector = bestVector,
-                )
+                val sure = m.similarity >= LearnedExamples.threshold + LearnedExamples.SURE_MARGIN
+                val confirmed = when {
+                    // Jouet, paysage, monument, plat… nettement reconnu : jamais sur une ressemblance.
+                    safeScene >= ImageLabels.SCENE_VETO -> false
+                    // Contenus pour adultes : le détecteur de nudité doit confirmer (même faiblement),
+                    // sauf ressemblance vraiment très forte.
+                    m.theme.startsWith("adulte.") && nsfwScore >= 0f ->
+                        nsfwScore >= NsfwDetector.CONFIRM || (sure && nsfwScore >= NsfwDetector.CONFIRM / 3f)
+                    // Détecteur absent : seule une ressemblance très forte compte.
+                    else -> sure
+                }
+                if (confirmed) {
+                    return Verdict(
+                        "${com.mindfilter.app.data.TaxonomyIndex.themeName(m.theme)} (image)",
+                        "ressemble à vos images apprises : ${(m.similarity * 100).toInt()} %" +
+                            if (nsfwScore >= 0f) " · détecteur : ${(nsfwScore * 100).toInt()} %" else "",
+                        vector = bestVector,
+                    )
+                }
+                VisionStats.lastRejected = "ressemblance ${(m.similarity * 100).toInt()} % écartée" +
+                    (safeName?.let { " ($it)" } ?: if (nsfwScore >= 0f) " (détecteur ${(nsfwScore * 100).toInt()} %)" else "")
             }
         }
-        // Objets reconnus : seulement l'objet le plus probable, et s'il est très net.
-        objects?.takeIf { it.available }?.recognize(img, top = 1)?.firstOrNull()?.let { (name, p) ->
+        // Objets reconnus : seulement l'objet le plus probable, s'il est très net, nettement
+        // devant le 2e, et si l'image n'est pas un jouet / une maquette / un décor.
+        top.firstOrNull()?.let { (name, p) ->
             val rule = ImageLabels.ruleFor(name)
-            if (rule != null && rule.themeId in themes && p >= maxOf(rule.minProbability, ImageLabels.MIN_CONFIDENCE)) {
+            val second = top.getOrNull(1)?.second ?: 0f
+            if (rule != null && rule.themeId in themes &&
+                p >= maxOf(rule.minProbability, ImageLabels.MIN_CONFIDENCE) &&
+                p - second >= ImageLabels.MIN_LEAD &&
+                safeScene < ImageLabels.SCENE_VETO
+            ) {
                 return Verdict(rule.label, "objet reconnu : $name (${(p * 100).toInt()} %)", vector = mainVector)
             }
         }
@@ -450,6 +493,12 @@ class ImageAnalyzer(
     }
 
     private fun luma(p: Int) = ((p shr 16) and 0xFF) * 299 + ((p shr 8) and 0xFF) * 587 + (p and 0xFF) * 114
+
+    /** Veille (l'utilisateur a quitté l'appli surveillée) : plus aucune capture en attente. */
+    fun cancelPending() {
+        pending = emptyList()
+        handler.removeCallbacks(videoTick)
+    }
 
     fun reset() {
         synchronized(verdicts) {

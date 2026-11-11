@@ -74,4 +74,44 @@ class KeywordClassifierTest {
         assertNotNull(c.classify("Attention SPOILER sur la fin de la saison"))
         assertNull(c.classify("Une belle journée à la plage"))
     }
+
+    // --- 0.9.2 : contexte et thèmes décochés -------------------------------------------------
+
+    private fun choice(ids: Set<String>, level: Int = 5): KeywordClassifier {
+        val v = TaxonomyIndex.vetoes(ids)
+        return KeywordClassifier(ids.mapNotNull { TaxonomyIndex.themesById[it] }, emptyList(), level, emptyList(), v.deselected, v.inactive)
+    }
+
+    private val demonsOn = TaxonomyIndex.defaultEnabledThemeIds + TaxonomyIndex.allThemeIds.filter { it.startsWith("horreur.surnaturel") }
+
+    @Test
+    fun creationEtLoisirNeSontPasMasques() {
+        for (level in 1..7) {
+            val c = choice(demonsOn, level)
+            assertNull("cran $level", c.classify("Mon cosplay de démon sexy pour la convention ce week-end #cosplay"))
+            assertNull("cran $level", c.classify("Figurine LEGO du démon de Diablo, 3000 pièces, superbe maquette"))
+            assertNull("cran $level", c.classify("Mon chat est un vrai petit démon ce matin"))
+        }
+        assertNotNull(choice(demonsOn).classify("Exorcisme : un prêtre raconte la possession démoniaque d'une adolescente"))
+    }
+
+    @Test
+    fun histoireNestPasUneActualite() {
+        val c = choice(TaxonomyIndex.allThemeIds)
+        assertNull(c.classify("En 1912, le Titanic coulait : plus de 1500 morts. Retour sur l'histoire du naufrage"))
+        assertNotNull(c.classify("Naufrage au large de Lampedusa : au moins 40 morts"))
+    }
+
+    @Test
+    fun themeDecocheEmporteLeThemeVoisin() {
+        val sansCelebrites = TaxonomyIndex.defaultEnabledThemeIds - "deces.deces.celebrites"
+        val c = choice(sansCelebrites)
+        val hommage = "RIP Matthew Perry, repose en paix, l'acteur de Friends restera une légende"
+        assertNull(c.classify(hommage))
+        assertNotNull(c.vetoHit(hommage))
+        // Coché : masqué.
+        assertNotNull(choice(TaxonomyIndex.defaultEnabledThemeIds).classify(hommage))
+        // Un sujet coché nettement plus fort reste masqué.
+        assertNotNull(c.classify("L'horreur d'un attentat à la gare de Lyon : 3 morts"))
+    }
 }

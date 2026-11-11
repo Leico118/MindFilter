@@ -23,7 +23,18 @@ data class Rule(val weight: Int, val groups: List<List<String>>)
  * de fiction (manga, film…). Utilisé pour les contenus pour adultes, où « manga » ou
  * « anime » ne rendent pas le contenu anodin.
  */
-data class Theme(val id: String, val name: String, val rules: List<Rule>, val ignoreContext: Boolean = false)
+data class Theme(
+    val id: String,
+    val name: String,
+    val rules: List<Rule>,
+    val ignoreContext: Boolean = false,
+    /**
+     * Le contexte « création / loisir » (cosplay, dessin, figurine, LEGO…) et le contexte
+     * « histoire / documentaire » rendent le contenu moins inquiétant. Désactivé pour les
+     * contenus pour adultes (un cosplay peut très bien être explicite).
+     */
+    val softContext: Boolean = true,
+)
 
 data class SubCategory(val id: String, val name: String, val themes: List<Theme>)
 
@@ -122,6 +133,36 @@ val EXCLUSIONS = listOf(
     "game of thrones", "the last of us", "plague tale", "sniper elite", "hitman", "killer instinct",
     "assassination classroom", "death note", "attack on titan", "l attaque des titans",
     "dead island", "left 4 dead", "dead space", "evil dead", "deadpool",
+    "demon slayer", "kimetsu no yaiba", "demon s souls", "demons souls", "devil may cry",
+    "demon hunter", "demon hunters", "kpop demon hunters", "petit demon", "petite demone",
+)
+
+/**
+ * Contexte « création, loisir, collection » : cosplay, dessin, figurine, LEGO, maquette…
+ * Un « démon » en cosplay ou en LEGO n'a rien d'inquiétant.
+ */
+val CREATIVE_MARKERS = listOf(
+    "cosplay*", "cosplayeu*", "costume*", "deguisement*", "deguise", "deguisee", "fanart*", "fan art",
+    "dessin*", "dessine", "illustrateur*", "illustratrice*", "artwork*", "peinture*", "aquarelle*", "sculpture*",
+    "sculpte*", "figurine*", "lego", "legos", "brique lego", "maquette*", "jouet*", "peluche*",
+    "tatouage*", "tattoo*", "maquillage", "makeup", "make up", "photoshoot", "shooting photo",
+    "convention", "japan expo", "comic con", "comiccon", "fait main", "diy", "impression 3d",
+    "warhammer", "jeu de societe", "jeu de role", "donjons et dragons", "collectionneu*",
+    "drawing", "painting", "sculpt*", "crochet", "tricot", "origami", "pate a modeler", "playmobil",
+)
+
+/**
+ * Contexte « histoire, documentaire, archives » : un naufrage de 1912 ou la mort de Napoléon
+ * ne sont pas une actualité anxiogène.
+ */
+val HISTORY_MARKERS = listOf(
+    "historien*", "l histoire de", "histoire de france", "cours d histoire", "lecon d histoire",
+    "archives", "documentaire*", "commemoration*", "commemore*", "anniversaire de la mort",
+    "retour sur", "ce jour la", "on this day", "this day in history", "musee", "siecle", "siecles",
+    "moyen age", "antiquite", "premiere guerre mondiale", "seconde guerre mondiale",
+    "1ere guerre mondiale", "2nde guerre mondiale", "grande guerre", "pharaon*",
+    "re:(?<![a-z0-9])il y a (1[0-9]|[2-9][0-9]|[1-9][0-9]{2,3}) ans(?![a-z0-9])",
+    "re:(?<![a-z0-9])(en|annee|annees|depuis|janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre) (1[0-8][0-9]{2}|19[0-8][0-9])(?![a-z0-9])",
 )
 
 /** Marques d'humour : le texte est probablement une blague. */
@@ -612,6 +653,9 @@ private fun catDeces(): Category =
                 t(
                     "deces.deces.celebrites", "Décès de célébrités",
                     all(STRONG, CELEBRITY, PASSED_AWAY),
+                    // Hommages après la mort d'une personnalité (« RIP », « repose en paix »…).
+                    all(STRONG, CELEBRITY, listOf("rip", "repose en paix", "hommage*", "obsèques", "funérailles", "in memoriam", "adieu", "tu vas nous manquer")),
+                    all(MEDIUM, CELEBRITY, listOf("rip", "repose en paix", "nous a quittés", "nous a quitté", "s'est éteint*", "décédé*", "décès")),
                     s("deuil national", "hommage posthume", "s'est éteint", "s'est éteinte", "nous a quittés", "nécrologie*", "obsèques", "funérailles", "in memoriam"),
                 ),
                 t(
@@ -774,6 +818,32 @@ object TaxonomyIndex {
         TAXONOMY.filter { it.defaultEnabled }.flatMap { it.allThemes }.map { it.id }.toSet()
 
     fun themeName(id: String): String = themesById[id]?.name ?: id
+
+    /**
+     * Thèmes NON cochés, qui servent à éviter les faux positifs : un texte qui parle surtout
+     * d'un sujet décoché (ex. « Décès de célébrités ») n'est pas masqué au titre d'un thème
+     * voisin coché (« Récits de deuil », « Décès soudains »…).
+     *
+     *  - [Vetoes.deselected] : thèmes décochés dans une catégorie dont d'autres thèmes sont
+     *    cochés. C'est un choix précis de l'utilisateur : il l'emporte dès qu'il pèse autant
+     *    que le thème coché (le texte parle au moins autant du sujet décoché).
+     *  - [Vetoes.inactive] : thèmes des catégories entièrement décochées. Ils ne l'emportent que
+     *    s'ils pèsent plus que le thème coché.
+     */
+    class Vetoes(val deselected: List<Theme>, val inactive: List<Theme>)
+
+    fun vetoes(enabled: Set<String>): Vetoes {
+        val deselected = ArrayList<Theme>()
+        val inactive = ArrayList<Theme>()
+        for (c in TAXONOMY) {
+            val themes = c.allThemes
+            val on = themes.count { it.id in enabled }
+            if (on == themes.size) continue
+            val target = if (on > 0) deselected else inactive
+            themes.filterTo(target) { it.id !in enabled }
+        }
+        return Vetoes(deselected, inactive)
+    }
 
     private val categoryOfTheme: Map<String, String> =
         TAXONOMY.flatMap { c -> c.allThemes.map { it.name.lowercase() to c.name } }.toMap()
@@ -942,7 +1012,7 @@ private fun catAdulte(): Category = Category(
     ),
 ).let { c ->
     // Les contenus pour adultes restent masqués même dans un contexte « manga » ou humoristique.
-    c.copy(subCategories = c.subCategories.map { sc -> sc.copy(themes = sc.themes.map { it.copy(ignoreContext = true) }) })
+    c.copy(subCategories = c.subCategories.map { sc -> sc.copy(themes = sc.themes.map { it.copy(ignoreContext = true, softContext = false) }) })
 }
 
 private fun catHorreur(): Category = Category(
@@ -989,8 +1059,16 @@ private fun catHorreur(): Category = Category(
             t(
                 "horreur.surnaturel.demons", "Démons et possessions",
                 s(
-                    "démon", "démons", "démoniaque*", "possession démoniaque", "possédé par un", "possédée par un",
-                    "exorcisme*", "exorciste*", "satanique*", "rituel satanique", "invoquer un démon",
+                    "possession démoniaque", "possédé par un démon", "possédée par un démon", "possédé par un esprit",
+                    "possédée par un esprit", "exorcisme*", "exorciste*", "satanique*", "rituel satanique", "invoquer un démon",
+                ),
+                // « Démon » seul est un mot très courant (cosplay, figurine, jeu, « petit démon ») :
+                // il ne suffit qu'avec un deuxième indice de possession ou d'effroi.
+                m("démon", "démons", "démoniaque*"),
+                all(
+                    STRONG,
+                    listOf("démon", "démons", "démoniaque*"),
+                    listOf("possédé*", "possession", "exorcis*", "invoqu*", "rituel*", "sabbat", "satan*", "terrifiant*", "effrayant*", "maléfique*", "hanté*", "paranormal*"),
                 ),
                 m("malédiction*", "invocation"),
             ),

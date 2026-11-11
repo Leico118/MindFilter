@@ -40,6 +40,11 @@ class MaskTracker(
         var vx = 0f // px par ms
         var vy = 0f
         var lastAt = 0L
+        /** Étirement appliqué à l'image précédente (lissé pour éviter que le masque « pulse »). */
+        var ex = 0f
+        var ey = 0f
+        /** Images consécutives où la lecture semblait aberrante (saut improbable). */
+        var suspect = 0
     }
 
     private val thread = HandlerThread("mindfilter-track").also { it.start() }
@@ -54,6 +59,8 @@ class MaskTracker(
     private val lostKeys = HashSet<String>()
     private val motions = HashMap<String, Motion>()
     private var tickCount = 0
+    /** Une lecture douteuse a été écartée : tout relire à l'image suivante pour trancher. */
+    private var forceFull = false
 
     fun setTargets(list: List<Tracked>) {
         targets = list
@@ -80,6 +87,20 @@ class MaskTracker(
         thread.quitSafely()
     }
 
+    /** Étirement : augmente aussitôt (même sens), diminue progressivement. */
+    private fun smoothStretch(current: Float, target: Float): Float {
+        val grows = abs(target) >= abs(current) && (current == 0f || (target > 0f) == (current > 0f))
+        val next = if (grows) target else current + (target - current) * 0.35f
+        return if (abs(next) < 1f) 0f else next
+    }
+
+    private companion object {
+        /** Déplacement (px) en dessous duquel on parle de micro-mouvement. */
+        const val MICRO_PX = 2
+        /** Vitesse (px/ms) en dessous de laquelle le masque n'est pas étiré. */
+        const val MIN_STRETCH_SPEED = 0.25f
+    }
+
     private fun clipKey(c: Rect) = "${c.left},${c.top},${c.right},${c.bottom}"
 
     private fun visibleArea(r: Rect, clip: Rect): Int {
@@ -93,11 +114,20 @@ class MaskTracker(
             val list = targets
             if (start > activeUntil || list.isEmpty()) {
                 running = false
-                motions.values.forEach { it.vx = 0f; it.vy = 0f; it.lastAt = 0L }
+                // Fin du mouvement : dernière position SANS étirement, pour que le masque reprenne
+                // exactement la taille de la publication (pas de saut à la prochaine analyse).
+                val hadStretch = motions.values.any { it.ex != 0f || it.ey != 0f }
+                motions.values.forEach { it.vx = 0f; it.vy = 0f; it.lastAt = 0L; it.ex = 0f; it.ey = 0f; it.suspect = 0 }
+                if (hadStretch) {
+                    val rest = list.filter { it.key !in lostKeys && states.containsKey(it.key) }
+                        .map { it.key to Rect(states.getValue(it.key).mask) }
+                    if (rest.isNotEmpty()) onUpdate(rest, emptyList(), start)
+                }
                 return
             }
             val h = screenHeight().coerceAtLeast(1)
-            val fullPass = tickCount++ % 4 == 0
+            val fullPass = forceFull || tickCount++ % 4 == 0
+            forceFull = false
             val margin = h / 2
             val lost = ArrayList<String>()
             val updates = ArrayList<Pair<String, Rect>>(list.size)
@@ -156,14 +186,45 @@ class MaskTracker(
                 }
                 if (reads.isEmpty()) continue
 
+                val m = motions.getOrPut(gKey) { Motion() }
+                val dt = if (m.lastAt == 0L) 0L else start - m.lastAt
+                // Peu de lectures (1 ou 2) : impossible de voter. Une lecture très éloignée du
+                // mouvement attendu (élément recyclé pour une autre publication, mise en page en
+                // cours…) est écartée : son masque suit simplement le mouvement de la liste, et tout
+                // est relu à l'image suivante. Si TOUTES les lectures sautent deux images de suite,
+                // c'est la liste entière qui a bougé (lancer, retour en haut) : on suit.
+                if (reads.size < 3) {
+                    val px = if (dt in 1L..120L) m.vx * dt else 0f
+                    val py = if (dt in 1L..120L) m.vy * dt else 0f
+                    val tol = maxOf(150, h / 4)
+                    val odd = reads.filter { (_, _, d) -> abs(d[1] - py) > tol || abs(d[0] - px) > tol }
+                    when {
+                        odd.isEmpty() -> m.suspect = 0
+                        odd.size < reads.size -> {
+                            reads.removeAll(odd.toSet())
+                            forceFull = true
+                        }
+                        ++m.suspect < 2 -> {
+                            reads.clear()
+                            forceFull = true
+                        }
+                        else -> m.suspect = 0
+                    }
+                } else {
+                    m.suspect = 0
+                }
+                if (reads.isEmpty()) continue
+
                 // 2. Déplacement commun de la liste (médiane) et vitesse.
                 val mdx = reads.map { it.third[0] }.sorted()[reads.size / 2]
                 val mdy = reads.map { it.third[1] }.sorted()[reads.size / 2]
-                val m = motions.getOrPut(gKey) { Motion() }
-                val dt = if (m.lastAt == 0L) 0L else start - m.lastAt
                 if (dt in 1L..120L) {
-                    m.vx = 0.5f * m.vx + 0.5f * (mdx.toFloat() / dt)
-                    m.vy = 0.5f * m.vy + 0.5f * (mdy.toFloat() / dt)
+                    // Micro-mouvements (1 ou 2 px : doigt posé, ajustement de mise en page) : la
+                    // position suit, mais ils ne comptent pas comme une vitesse (pas d'étirement).
+                    val ix = if (abs(mdx) <= MICRO_PX) 0f else mdx.toFloat() / dt
+                    val iy = if (abs(mdy) <= MICRO_PX) 0f else mdy.toFloat() / dt
+                    m.vx = 0.6f * m.vx + 0.4f * ix
+                    m.vy = 0.6f * m.vy + 0.4f * iy
                 } else {
                     m.vx = 0f; m.vy = 0f
                 }
@@ -189,10 +250,14 @@ class MaskTracker(
 
                 // 4. Étirement dans le sens du mouvement : couvre ce que le contenu parcourt
                 //    pendant la lecture et l'affichage du masque (environ une image).
+                //    Lissé : il grandit tout de suite (rien ne dépasse) mais diminue en douceur, et
+                //    il est nul quand la page bouge à peine : le masque ne « pulse » plus.
                 val lead = (SystemClock.uptimeMillis() - start) + frameMs
                 val cap = h / 4f
-                val ey = (m.vy * lead).coerceIn(-cap, cap).roundToInt()
-                val ex = (m.vx * lead).coerceIn(-cap, cap).roundToInt()
+                m.ey = smoothStretch(m.ey, if (abs(m.vy) < MIN_STRETCH_SPEED) 0f else (m.vy * lead).coerceIn(-cap, cap))
+                m.ex = smoothStretch(m.ex, if (abs(m.vx) < MIN_STRETCH_SPEED) 0f else (m.vx * lead).coerceIn(-cap, cap))
+                val ey = m.ey.roundToInt()
+                val ex = m.ex.roundToInt()
                 for (t in alive) {
                     if (t.key in lostKeys) continue
                     val out = Rect(states.getValue(t.key).mask)

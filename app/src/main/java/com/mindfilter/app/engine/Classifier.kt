@@ -1,6 +1,8 @@
 package com.mindfilter.app.engine
 
+import com.mindfilter.app.data.CREATIVE_MARKERS
 import com.mindfilter.app.data.CustomFilter
+import com.mindfilter.app.data.HISTORY_MARKERS
 import com.mindfilter.app.data.EXCLUSIONS
 import com.mindfilter.app.data.FICTION_MARKERS
 import com.mindfilter.app.data.HUMOR_MARKERS
@@ -112,6 +114,8 @@ private class CompiledTheme(
     val ignoreContext: Boolean = false,
     /** Seuil propre (filtres personnalisés) ; null = seuil du niveau de sensibilité. */
     val fixedThreshold: Int? = null,
+    /** Le contexte création / histoire réduit le score (voir [Theme.softContext]). */
+    val softContext: Boolean = true,
 )
 
 /**
@@ -122,6 +126,8 @@ private class CompiledTheme(
  * - [minWeight] : poids minimal d'une règle pour compter (4 = seulement les mots-clés forts).
  * - [humorPenalty]/[fictionPenalty] : points exigés en plus si le texte contient des marques
  *   d'humour (😂, mdr…) ou parle de jeu vidéo / film / série. -1 = jamais masqué dans ce cas.
+ * - [softPenalty] : idem pour un contexte création / loisir (cosplay, LEGO, dessin…) ou
+ *   histoire / documentaire (« en 1912 », « il y a 50 ans »…).
  */
 private data class Level(
     val threshold: Int,
@@ -130,19 +136,20 @@ private data class Level(
     val minWeight: Int,
     val humorPenalty: Int,
     val fictionPenalty: Int,
+    val softPenalty: Int,
 )
 
 /** Les 9 crans de la jauge « Niveau de filtrage » (1 = très léger … 9 = très strict). */
 private fun levelOf(n: Int): Level = when (n.coerceIn(1, 9)) {
-    1 -> Level(threshold = 4, combos = false, window = 0, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1)
-    2 -> Level(threshold = 4, combos = true, window = 3, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1)
-    3 -> Level(threshold = 4, combos = true, window = 6, minWeight = STRONG, humorPenalty = -1, fictionPenalty = 4)
-    4 -> Level(threshold = 4, combos = true, window = 8, minWeight = 2, humorPenalty = 6, fictionPenalty = 4)
-    5 -> Level(threshold = 4, combos = true, window = 10, minWeight = 2, humorPenalty = 4, fictionPenalty = 4)
-    6 -> Level(threshold = 4, combos = true, window = 12, minWeight = 1, humorPenalty = 4, fictionPenalty = 2)
-    7 -> Level(threshold = 3, combos = true, window = 16, minWeight = 1, humorPenalty = 2, fictionPenalty = 2)
-    8 -> Level(threshold = 2, combos = true, window = 25, minWeight = 1, humorPenalty = 2, fictionPenalty = 0)
-    else -> Level(threshold = 2, combos = true, window = 40, minWeight = 1, humorPenalty = 0, fictionPenalty = 0)
+    1 -> Level(threshold = 4, combos = false, window = 0, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1, softPenalty = -1)
+    2 -> Level(threshold = 4, combos = true, window = 3, minWeight = STRONG, humorPenalty = -1, fictionPenalty = -1, softPenalty = -1)
+    3 -> Level(threshold = 4, combos = true, window = 6, minWeight = STRONG, humorPenalty = -1, fictionPenalty = 4, softPenalty = -1)
+    4 -> Level(threshold = 4, combos = true, window = 8, minWeight = 2, humorPenalty = 6, fictionPenalty = 4, softPenalty = 6)
+    5 -> Level(threshold = 4, combos = true, window = 10, minWeight = 2, humorPenalty = 4, fictionPenalty = 4, softPenalty = 4)
+    6 -> Level(threshold = 4, combos = true, window = 12, minWeight = 1, humorPenalty = 4, fictionPenalty = 2, softPenalty = 4)
+    7 -> Level(threshold = 3, combos = true, window = 16, minWeight = 1, humorPenalty = 2, fictionPenalty = 2, softPenalty = 3)
+    8 -> Level(threshold = 2, combos = true, window = 25, minWeight = 1, humorPenalty = 2, fictionPenalty = 0, softPenalty = 2)
+    else -> Level(threshold = 2, combos = true, window = 40, minWeight = 1, humorPenalty = 0, fictionPenalty = 0, softPenalty = 0)
 }
 
 /**
@@ -156,6 +163,14 @@ class KeywordClassifier(
     restrictionLevel: Int,
     /** Mots « toujours afficher » saisis par l'utilisateur. */
     exceptions: List<String> = emptyList(),
+    /**
+     * Thèmes décochés par l'utilisateur dans une catégorie partiellement cochée (voir
+     * [com.mindfilter.app.data.TaxonomyIndex.vetoes]) : si le texte parle au moins autant de
+     * l'un d'eux que du thème coché, il n'est pas masqué.
+     */
+    deselectedThemes: Collection<Theme> = emptyList(),
+    /** Thèmes des catégories entièrement décochées : l'emportent seulement s'ils pèsent plus. */
+    inactiveThemes: Collection<Theme> = emptyList(),
 ) : ContentClassifier {
 
     private val level = levelOf(restrictionLevel)
@@ -164,6 +179,16 @@ class KeywordClassifier(
     private val exclusions: List<CompiledAlt> = EXCLUSIONS.mapNotNull { CompiledAlt.compile(it) }
     private val humorWords: List<CompiledAlt> = HUMOR_MARKERS.mapNotNull { CompiledAlt.compile(it) }
     private val fictionWords: List<CompiledAlt> = FICTION_MARKERS.mapNotNull { CompiledAlt.compile(it) }
+    private val creativeWords: List<CompiledAlt> = CREATIVE_MARKERS.mapNotNull { CompiledAlt.compile(it) }
+    private val historyWords: List<CompiledAlt> = HISTORY_MARKERS.mapNotNull { CompiledAlt.compile(it) }
+
+    /** Thèmes non cochés qui peuvent empêcher un masquage (true = décoché dans une catégorie cochée). */
+    private val vetoes: List<Pair<CompiledTheme, Boolean>>
+
+    /** Dernier sujet décoché qui a empêché un masquage, par texte (pour « Vérifier une publication »). */
+    private val vetoCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 200
+    }
 
     private val resultCache = object : LinkedHashMap<String, MatchResult>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MatchResult>?): Boolean = size > 3000
@@ -175,17 +200,26 @@ class KeywordClassifier(
 
     private val userExceptions: List<UserException>
 
+    private fun compileTheme(t: Theme): CompiledTheme? {
+        val rules = t.rules.mapNotNull { r ->
+            if (r.weight < level.minWeight) return@mapNotNull null
+            if (r.groups.size > 1 && !level.combos) return@mapNotNull null
+            val groups = r.groups.map { g -> g.mapNotNull { alt(it) } }
+            if (groups.isEmpty() || groups.any { it.isEmpty() }) null else CompiledRule(r.weight, groups)
+        }
+        if (rules.isEmpty()) return null
+        return CompiledTheme(t.id, t.name, rules, ignoreContext = t.ignoreContext, softContext = t.softContext)
+    }
+
     init {
         val list = ArrayList<CompiledTheme>()
+        val enabledIds = HashSet<String>()
         for (t in themes) {
-            val rules = t.rules.mapNotNull { r ->
-                if (r.weight < level.minWeight) return@mapNotNull null
-                if (r.groups.size > 1 && !level.combos) return@mapNotNull null
-                val groups = r.groups.map { g -> g.mapNotNull { alt(it) } }
-                if (groups.isEmpty() || groups.any { it.isEmpty() }) null else CompiledRule(r.weight, groups)
-            }
-            if (rules.isNotEmpty()) list.add(CompiledTheme(t.id, t.name, rules, ignoreContext = t.ignoreContext))
+            enabledIds.add(t.id)
+            compileTheme(t)?.let { list.add(it) }
         }
+        vetoes = deselectedThemes.filter { it.id !in enabledIds }.mapNotNull { t -> compileTheme(t)?.let { it to true } } +
+            inactiveThemes.filter { it.id !in enabledIds }.mapNotNull { t -> compileTheme(t)?.let { it to false } }
         for (f in customFilters) {
             if (!f.enabled) continue
             val kws = f.keywords.map { it.trim() }.filter { it.isNotEmpty() }
@@ -243,6 +277,12 @@ class KeywordClassifier(
     fun exceptionCoverage(): Map<String, List<String>> =
         userExceptions.associate { ex -> ex.raw to compiled.filter { it.id in ex.coveredThemes }.map { it.label } }
 
+    /** Le sujet décoché qui a empêché le masquage de ce texte, s'il y en a un. */
+    fun vetoHit(text: String): String? {
+        classify(text)
+        return synchronized(vetoCache) { vetoCache[text] }
+    }
+
     /** L'exception qui a empêché le masquage de ce texte, s'il y en a une. */
     fun exceptionHit(text: String): String? {
         val norm = TextNormalizer.normalize(text)
@@ -253,9 +293,11 @@ class KeywordClassifier(
 
     override fun classify(text: String): MatchResult? {
         if (isEmpty || text.length < 8) return null
-        resultCache[text]?.let { return if (it === NO_MATCH) null else it }
+        // Utilisé à la fois par la lecture de l'écran et par l'analyse des images (deux fils) :
+        // le cache est protégé, sinon il peut se corrompre.
+        synchronized(resultCache) { resultCache[text] }?.let { return if (it === NO_MATCH) null else it }
         val r = doClassify(text)
-        resultCache[text] = r ?: NO_MATCH
+        synchronized(resultCache) { resultCache[text] = r ?: NO_MATCH }
         return r
     }
 
@@ -283,6 +325,9 @@ class KeywordClassifier(
         val tokens = Tokens(norm)
         val humor = LAUGH_EMOJI.containsMatchIn(raw) || humorWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) }
         val fiction = fictionWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) }
+        // Contexte création / loisir (cosplay, LEGO, dessin…) ou histoire / documentaire.
+        val soft = creativeWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) } ||
+            historyWords.any { tokens.present(it) && it.regex.containsMatchIn(norm) }
         // blocked = aux niveaux bas, ce contexte empêche tout masquage (sauf filtres
         // personnels et thèmes qui ignorent le contexte, comme les contenus pour adultes).
         var penalty = 0
@@ -319,17 +364,35 @@ class KeywordClassifier(
             val custom = t.fixedThreshold != null
             if (blocked && !custom && !t.ignoreContext) continue
             if (!custom && t.id in skipThemes) continue
-            var score = 0
-            for (rule in t.rules) {
-                if (matches(rule, tokens, ::positions)) score += rule.weight
+            // Création / histoire : s'applique aussi aux thèmes qui ignorent la fiction (horreur).
+            var themePenalty = if (custom || t.ignoreContext) 0 else penalty
+            if (soft && !custom && t.softContext) {
+                if (level.softPenalty < 0) continue
+                themePenalty += level.softPenalty
             }
-            val threshold = (t.fixedThreshold ?: level.threshold) + if (custom || t.ignoreContext) 0 else penalty
+            val score = scoreOf(t, tokens, ::positions)
+            val threshold = (t.fixedThreshold ?: level.threshold) + themePenalty
             if (score >= threshold && (best == null || score > best.score)) {
                 best = MatchResult(t.id, t.label, score)
                 bestTheme = t
             }
         }
         val bt = bestTheme ?: return best
+        // Le texte parle-t-il autant (ou plus) d'un sujet que l'utilisateur a décoché ? Alors il
+        // n'est pas masqué : ex. hommage à un acteur (« Décès de célébrités » décoché) qui ne doit
+        // pas être masqué au titre de « Récits de deuil ». Les filtres personnels ne sont jamais
+        // concernés : ce sont les mots de l'utilisateur lui-même.
+        if (bt.fixedThreshold == null && vetoes.isNotEmpty()) {
+            val score = best?.score ?: 0
+            for ((v, deselected) in vetoes) {
+                val vs = scoreOf(v, tokens, ::positions)
+                if (vs < level.threshold) continue
+                if (vs > score || (deselected && vs >= score)) {
+                    synchronized(vetoCache) { vetoCache[text] = v.label }
+                    return null
+                }
+            }
+        }
         // Mots repérés (au plus 5), pour expliquer le masquage à l'utilisateur.
         val words = LinkedHashSet<String>()
         for (rule in bt.rules) {
@@ -345,6 +408,12 @@ class KeywordClassifier(
             }
         }
         return best?.copy(words = words.filter { it.isNotEmpty() }.take(5))
+    }
+
+    private fun scoreOf(t: CompiledTheme, tokens: Tokens, positions: (CompiledAlt) -> IntArray): Int {
+        var score = 0
+        for (rule in t.rules) if (matches(rule, tokens, positions)) score += rule.weight
+        return score
     }
 
     /**

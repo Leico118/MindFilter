@@ -293,7 +293,8 @@ private fun EngineTester() {
 
     val enabledThemes = remember(s.enabledThemes) { s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] } }
     val classifier = remember(s.enabledThemes, s.customFilters, s.restrictionLevel, s.exceptions) {
-        KeywordClassifier(enabledThemes, s.customFilters, s.restrictionLevel, s.exceptions)
+        val v = TaxonomyIndex.vetoes(s.enabledThemes)
+        KeywordClassifier(enabledThemes, s.customFilters, s.restrictionLevel, s.exceptions, v.deselected, v.inactive)
     }
     val allThemesSameLevel = remember(s.restrictionLevel) {
         KeywordClassifier(TaxonomyIndex.themesById.values, emptyList(), s.restrictionLevel)
@@ -313,7 +314,10 @@ private fun EngineTester() {
                 val other = allThemesSameLevel.classify(trimmed)
                 val strict = enabledStrict.classify(trimmed)
                 val exception = classifier.exceptionHit(trimmed)
+                val veto = classifier.vetoHit(trimmed)
                 when {
+                    veto != null ->
+                        "Ce texte parle surtout de « $veto », un thème que vous n'avez pas coché : il n'est donc pas masqué."
                     exception != null && (other != null || strict != null) ->
                         "Votre exception « $exception » (onglet Filtres) empêche le masquage."
                     other != null -> "Ce texte parle de « ${other.label} », mais ce thème n'est pas coché dans Catégories."

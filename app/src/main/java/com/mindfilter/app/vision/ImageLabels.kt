@@ -37,6 +37,45 @@ object ImageLabels {
     fun ruleFor(label: String): Rule? = rules[label.trim().lowercase()]
 
     /**
+     * Objets qui montrent qu'une image est anodine : jouets et constructions (LEGO…), paysages,
+     * monuments, plats, pages de texte. Utilisés comme « deuxième avis » pour éviter les fausses
+     * alertes (une construction LEGO prise pour un contenu pour adultes, un char LEGO pris pour
+     * la guerre, des dunes prises pour de la peau…).
+     */
+    private val SAFE_SCENES = setOf(
+        // Jouets, jeux, constructions, dessins
+        "toyshop", "jigsaw puzzle", "comic book", "crossword puzzle", "pinwheel", "teddy", "teddy bear",
+        "carousel", "puck", "packet", "carton", "crate", "shoji", "chain mail", "lego",
+        // Paysages
+        "alp", "valley", "cliff", "promontory", "sandbar", "seashore", "lakeside", "coral reef",
+        "geyser", "mountain tent", "dock", "boathouse", "breakwater", "dam",
+        // Monuments, bâtiments
+        "church", "castle", "palace", "monastery", "mosque", "dome", "bell cote", "library",
+        "planetarium", "triumphal arch", "suspension bridge", "steel arch bridge", "viaduct", "pier",
+        "beacon", "obelisk", "stupa", "cinema", "restaurant", "barn", "greenhouse", "patio",
+        // Plats, nourriture
+        "plate", "pizza", "cheeseburger", "trifle", "ice cream", "bakery", "grocery store",
+        "confectionery", "carbonara", "guacamole", "potpie", "burrito", "espresso",
+        // Écrans et textes
+        "web site", "menu", "book jacket", "envelope", "scoreboard", "monitor", "screen",
+    )
+
+    fun isSafeScene(label: String): Boolean = label.trim().lowercase() in SAFE_SCENES
+
+    /** Probabilité cumulée des objets « anodins » parmi les objets les plus probables. */
+    fun safeSceneScore(top: List<Pair<String, Float>>): Float =
+        top.filter { isSafeScene(it.first) }.sumOf { it.second.toDouble() }.toFloat()
+
+    /** Une ressemblance ou un objet reconnu sont ignorés au-delà de ce score « anodin ». */
+    const val SCENE_VETO = 0.30f
+
+    /** Le détecteur de nudité est ignoré au-delà de ce score « anodin » (sauf certitude). */
+    const val SCENE_VETO_STRONG = 0.45f
+
+    /** L'objet reconnu doit devancer le 2e objet le plus probable d'au moins 25 points. */
+    const val MIN_LEAD = 0.25f
+
+    /**
      * Probabilité minimale réellement exigée : le modèle d'objets se trompe souvent sur les
      * photos de personnes et les vidéos. On exige donc au moins 70 %.
      */

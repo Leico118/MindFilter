@@ -366,6 +366,8 @@ fun LearningScreen(onBack: () -> Unit) {
                     "Images analysées / à masquer" to "${st.analyzed} / ${st.hits}",
                     "Ressemblance de la dernière image" to st.lastBest.ifEmpty { "—" },
                     "Score « adultes » de la dernière image" to st.lastNsfw.ifEmpty { "—" },
+                    "Objets de la dernière image" to st.lastObjects.ifEmpty { "—" },
+                    "Dernière fausse alerte évitée" to st.lastRejected.ifEmpty { "—" },
                     "Dernière détection" to st.lastLabel.ifEmpty { "—" },
                 )
                 lines.forEach { (k, v) ->

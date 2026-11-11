@@ -12,6 +12,7 @@ import android.os.Looper
 import java.util.concurrent.atomic.AtomicInteger
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import com.mindfilter.app.data.AppSettings
 import com.mindfilter.app.data.MaskStyle
 import com.mindfilter.app.data.ServiceStatus
@@ -115,7 +116,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
                     }
                     workerHandler.post {
                         val themes = s.enabledThemes.mapNotNull { TaxonomyIndex.themesById[it] }
-                        classifier = KeywordClassifier(themes, s.customFilters, s.restrictionLevel, s.exceptions)
+                        val v = TaxonomyIndex.vetoes(s.enabledThemes)
+                        classifier = KeywordClassifier(themes, s.customFilters, s.restrictionLevel, s.exceptions, v.deselected, v.inactive)
                         requestScan(0)
                     }
                 } else {
@@ -230,10 +232,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
             null
         }
         val pkg = root?.packageName?.toString()
-        if (root == null || pkg == null || pkg == packageName || pkg !in s.monitoredPackages) {
-            clearMasks()
+        if (root == null || pkg == null || pkg == packageName || pkg !in s.monitoredPackages || !foregroundIsMonitored(root, s)) {
+            enterStandby()
             return
         }
+        foregroundOk = true
+        val epoch = standbyEpoch
         if (c.isEmpty) {
             clearMasks()
             return
@@ -318,7 +322,101 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 Configuration.UI_MODE_NIGHT_YES
         }
         val hue = if (s.maskStyle == MaskStyle.COLOR) s.maskHue else null
-        main.post { try { renderOnMain(targets, dark, hue, snapAt, snapX, snapY) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "affichage des masques") } }
+        main.post {
+            // L'utilisateur a quitté l'appli pendant l'analyse : ce résultat n'est plus affiché.
+            if (epoch != standbyEpoch || !foregroundOk) return@post
+            try { renderOnMain(targets, dark, hue, snapAt, snapX, snapY) } catch (e: Throwable) { com.mindfilter.app.CrashLog.record(this, e, "affichage des masques") }
+        }
+    }
+
+    // ------------------------------------------------------------------------------
+    // Veille hors des applis surveillées
+    // ------------------------------------------------------------------------------
+    //
+    // MindFilter ne travaille QUE lorsqu'une appli cochée est réellement au premier plan :
+    //  - l'appli active (celle que l'on touche) doit être cochée ;
+    //  - aucune autre appli non cochée ne doit la recouvrir en partie (Gemini, une bulle de
+    //    discussion, le volet des notifications, une fenêtre flottante…).
+    // Sinon : veille complète, tous les masques sont retirés, aucune analyse n'est faite.
+
+    /** Appli cochée au premier plan lors de la dernière vérification. */
+    @Volatile private var foregroundOk = false
+    /** Change à chaque mise en veille : les résultats d'analyse plus anciens sont ignorés. */
+    @Volatile private var standbyEpoch = 0
+    @Volatile private var lastWindowsCheckAt = 0L
+    @Volatile private var lastWindowsVerdict = true
+    /** Appli de chaque fenêtre (le numéro d'une fenêtre ne change pas tant qu'elle existe). */
+    private val windowPackages = object : LinkedHashMap<Int, String>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, String>?) = size > 40
+    }
+
+    private fun enterStandby() {
+        if (foregroundOk || ServiceStatus.currentlyMasked.value != 0) standbyEpoch++
+        foregroundOk = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            (analyzer as? com.mindfilter.app.vision.ImageAnalyzer)?.cancelPending()
+        }
+        clearMasks()
+    }
+
+    private fun windowPackage(w: AccessibilityWindowInfo): String? {
+        synchronized(windowPackages) { windowPackages[w.id] }?.let { return it }
+        val p = try { w.root?.packageName?.toString() } catch (_: Exception) { null } ?: return null
+        synchronized(windowPackages) { windowPackages[w.id] = p }
+        return p
+    }
+
+    /**
+     * L'appli cochée [root] est-elle vraiment visible, sans appli non cochée par-dessus ?
+     * Vérifié au plus toutes les 90 ms (la liste des fenêtres demande un échange avec Android).
+     */
+    private fun foregroundIsMonitored(root: android.view.accessibility.AccessibilityNodeInfo, s: SettingsState, force: Boolean = false): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!force && now - lastWindowsCheckAt < 90) return lastWindowsVerdict
+        lastWindowsCheckAt = now
+        val list = try { windows } catch (_: Exception) { null }
+        if (list.isNullOrEmpty()) {
+            lastWindowsVerdict = true
+            return true
+        }
+        val mine = list.firstOrNull { it.id == root.windowId }
+        if (mine == null) {
+            lastWindowsVerdict = true
+            return true
+        }
+        val area = Rect().also { mine.getBoundsInScreen(it) }
+        val full = area.width().toLong() * area.height()
+        if (full <= 0L) {
+            lastWindowsVerdict = true
+            return true
+        }
+        var ok = true
+        for (w in list) {
+            if (w.id == mine.id || w.layer <= mine.layer) continue
+            val type = w.type
+            if (type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY ||
+                type == AccessibilityWindowInfo.TYPE_INPUT_METHOD ||
+                type == AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && type == AccessibilityWindowInfo.TYPE_MAGNIFICATION_OVERLAY)
+            ) continue
+            val r = Rect().also { w.getBoundsInScreen(it) }
+            if (!r.intersect(area)) continue
+            val covered = r.width().toLong() * r.height()
+            // Barre d'état, barre de navigation, petites bulles : ignorées. Au-delà, si la fenêtre
+            // appartient à une appli non cochée (Gemini, Messenger…), MindFilter se met en veille.
+            val app = type == AccessibilityWindowInfo.TYPE_APPLICATION
+            if (covered < if (app) full / 6 else full / 3) continue
+            val p = windowPackage(w)
+            if (p != null && p in s.monitoredPackages) continue
+            // Fenêtre système (volet des notifications, assistant…) : seulement si l'utilisateur
+            // s'en sert (active) ou si c'est l'interface système. Certains téléphones gardent des
+            // fenêtres système invisibles par-dessus tout : elles ne doivent pas tout bloquer.
+            if (!app && !(w.isActive || w.isFocused || p == "com.android.systemui")) continue
+            ok = false
+            break
+        }
+        lastWindowsVerdict = ok
+        return ok
     }
 
     private fun renderOnMain(
@@ -397,7 +495,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Tant que des masques sont affichés, vérifie toutes les 400 ms que l'appli
+     * Tant que des masques sont affichés, vérifie toutes les 120 ms que l'appli
      * surveillée est toujours au premier plan (Android ne nous prévient pas quand on
      * passe à une appli non surveillée). S'arrête dès qu'il n'y a plus de masque :
      * aucun coût le reste du temps.
@@ -405,7 +503,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
     private fun startExitWatch() {
         if (exitWatchRunning || !::workerHandler.isInitialized) return
         exitWatchRunning = true
-        workerHandler.postDelayed(exitWatch, 200)
+        workerHandler.postDelayed(exitWatch, EXIT_WATCH_MS)
     }
 
     private val exitWatch: Runnable = object : Runnable {
@@ -414,17 +512,20 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 exitWatchRunning = false
                 return
             }
-            val pkg = try {
-                rootInActiveWindow?.packageName?.toString()
+            val root = try {
+                rootInActiveWindow
             } catch (e: Exception) {
                 null
             }
+            val pkg = root?.packageName?.toString()
             val s = settings
-            if (!s.protectionEnabled || pkg == null || pkg !in s.monitoredPackages) {
+            if (!s.protectionEnabled || root == null || pkg == null || pkg !in s.monitoredPackages ||
+                !foregroundIsMonitored(root, s, force = true)
+            ) {
                 exitWatchRunning = false
-                clearMasks()
+                enterStandby()
             } else {
-                workerHandler.postDelayed(this, 200)
+                workerHandler.postDelayed(this, EXIT_WATCH_MS)
             }
         }
     }
@@ -715,6 +816,15 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val MIN_INTERVAL_MS = 33L
+        /** Tant que des masques sont affichés, vérification de l'appli au premier plan. */
+        const val EXIT_WATCH_MS = 120L
+    }
+
+    /** Rotation de l'écran, changement de taille (écran partagé…) : les positions ne valent plus. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        clearMasks()
+        requestScan(150)
     }
 
     override fun onInterrupt() {

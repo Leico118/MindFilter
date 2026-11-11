@@ -381,7 +381,9 @@ class MaskOverlayManager(
                     e.clip.set(t.clip)
                     place(e)
                 }
-            } else if (e.rect != t.rect || e.clip != t.clip) {
+            } else if (e.clip != t.clip || !nearlySame(e.rect, t.rect)) {
+                // Écart de 1 ou 2 px seulement (arrondis, mise en page qui s'ajuste) : le masque
+                // ne bouge pas, sinon il tremble à chaque analyse.
                 e.rect.set(t.rect)
                 e.clip.set(t.clip)
                 place(e)
@@ -391,6 +393,13 @@ class MaskOverlayManager(
         if (entries.isEmpty()) detach()
         return created
     }
+
+    private val jitterPx = (2 * context.resources.displayMetrics.density).toInt().coerceAtLeast(2)
+
+    /** Même zone à quelques pixels près (aucun bord ne bouge de plus de [jitterPx]). */
+    private fun nearlySame(a: Rect, b: Rect): Boolean =
+        kotlin.math.abs(a.left - b.left) <= jitterPx && kotlin.math.abs(a.top - b.top) <= jitterPx &&
+            kotlin.math.abs(a.right - b.right) <= jitterPx && kotlin.math.abs(a.bottom - b.bottom) <= jitterPx
 
     /** Deux zones se recouvrent-elles à plus de moitié (par rapport à la plus petite) ? */
     private fun overlaps(a: Rect, b: Rect): Boolean {

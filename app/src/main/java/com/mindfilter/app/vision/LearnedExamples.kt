@@ -39,6 +39,12 @@ object LearnedExamples {
     @Volatile var threshold = DEFAULT_THRESHOLD
         private set
 
+    /**
+     * Ressemblance « sûre » : seuil + cette marge. En dessous, la ressemblance doit être confirmée
+     * par un deuxième indice (détecteur de nudité) avant de masquer.
+     */
+    const val SURE_MARGIN = 0.12f
+
     /** Écart minimal avec l'exemple « sans problème » le plus proche. */
     const val MARGIN = 0.02f
 
