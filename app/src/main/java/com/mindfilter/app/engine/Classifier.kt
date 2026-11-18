@@ -355,7 +355,8 @@ class KeywordClassifier(
         val memo = HashMap<CompiledAlt, IntArray>()
         fun positions(a: CompiledAlt): IntArray = memo.getOrPut(a) {
             if (!tokens.present(a)) EMPTY
-            else a.regex.findAll(norm).map { wordAt[it.range.first] }.take(30).toList().toIntArray()
+            else a.regex.findAll(norm).filter { !negated(norm, it.range.first) }
+                .map { wordAt[it.range.first] }.take(30).toList().toIntArray()
         }
 
         var best: MatchResult? = null
@@ -382,12 +383,21 @@ class KeywordClassifier(
         // n'est pas masqué : ex. hommage à un acteur (« Décès de célébrités » décoché) qui ne doit
         // pas être masqué au titre de « Récits de deuil ». Les filtres personnels ne sont jamais
         // concernés : ce sont les mots de l'utilisateur lui-même.
+        // Le sujet décoché ne l'emporte que si les mots qui ont déclenché le thème coché font
+        // partie de ce sujet (« RIP », « repose en paix » pour un hommage à un acteur), ou s'il
+        // pèse plus du double. Un indice propre au thème coché (« corps retrouvé » dans une
+        // disparition) garde le masquage : pas de faux négatif.
         if (bt.fixedThreshold == null && vetoes.isNotEmpty()) {
             val score = best?.score ?: 0
+            var mine: List<IntRange>? = null
             for ((v, deselected) in vetoes) {
                 val vs = scoreOf(v, tokens, ::positions)
                 if (vs < level.threshold) continue
-                if (vs > score || (deselected && vs >= score)) {
+                if (!(vs > score || (deselected && vs >= score))) continue
+                val own = mine ?: spans(bt, tokens, norm, ::positions).also { mine = it }
+                val theirs = spans(v, tokens, norm, ::positions)
+                val explained = own.all { r -> theirs.any { o -> o.first <= r.last && r.first <= o.last } }
+                if (explained || vs > 2 * score) {
                     synchronized(vetoCache) { vetoCache[text] = v.label }
                     return null
                 }
@@ -408,6 +418,19 @@ class KeywordClassifier(
             }
         }
         return best?.copy(words = words.filter { it.isNotEmpty() }.take(5))
+    }
+
+    /** Passages du texte qui ont fait réagir ce thème (mots non niés des règles déclenchées). */
+    private fun spans(t: CompiledTheme, tokens: Tokens, norm: String, positions: (CompiledAlt) -> IntArray): List<IntRange> {
+        val out = ArrayList<IntRange>()
+        for (rule in t.rules) {
+            if (!matches(rule, tokens, positions)) continue
+            for (g in rule.groups) for (a in g) {
+                if (!tokens.present(a)) continue
+                a.regex.findAll(norm).filter { !negated(norm, it.range.first) }.take(10).forEach { out.add(it.range) }
+            }
+        }
+        return out
     }
 
     private fun scoreOf(t: CompiledTheme, tokens: Tokens, positions: (CompiledAlt) -> IntArray): Int {
@@ -441,7 +464,40 @@ class KeywordClassifier(
         return false
     }
 
+    /**
+     * Mot nié ou écarté juste avant (« ni l'accident ni l'enlèvement », « aucun blessé »,
+     * « pas de victime », « la police exclut un meurtre ») : il ne compte pas.
+     */
+    private fun negated(norm: String, start: Int): Boolean {
+        if (start <= 0) return false
+        val before = norm.substring(maxOf(0, start - 48), start).trimEnd().split(' ').filter { it.isNotEmpty() }
+        val prev = ArrayList<String>(4)
+        for (k in before.indices.reversed()) {
+            val t = before[k]
+            if (t == SEP) break
+            prev.add(0, t)
+            if (prev.size == 4) break
+        }
+        for (j in prev.indices) {
+            if (prev[j] !in NEGATIONS) continue
+            val next = prev.getOrNull(j + 1)
+            if (next != null && next in NOT_NEGATION_AFTER) continue
+            return true
+        }
+        return false
+    }
+
     companion object {
+        private val NEGATIONS = setOf(
+            "ni", "pas", "aucun", "aucune", "aucuns", "aucunes", "sans",
+            "exclut", "exclu", "exclue", "exclure", "ecarte", "ecartee", "ecartes", "ecartees", "ecarter",
+            "dement", "dementi", "infirme",
+        )
+        /** « pas moins de 30 morts », « pas seulement », « pas que » : ce n'est pas une négation. */
+        private val NOT_NEGATION_AFTER = setOf(
+            "moins", "seulement", "que", "loin", "encore", "oublier", "oublions", "oublie", "oubliez", "seul", "seule",
+            "cesse", "arrete", "fin", "relache", "precedent",
+        )
         private val NO_MATCH = MatchResult("", "", 0)
         private val EMPTY = IntArray(0)
         private val MULTI_SPACE = Regex(" {2,}")

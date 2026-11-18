@@ -2,6 +2,7 @@ package com.mindfilter.app.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Path
 import android.graphics.Rect
@@ -93,8 +94,21 @@ class MindFilterAccessibilityService : AccessibilityService() {
             -1
         }
         val previous = AppSettings.swapBootCount(boot)
-        if (previous != Int.MIN_VALUE && previous != boot && !AppSettings.state.value.autoActivation) {
+        if (previous != Int.MIN_VALUE && previous != boot && !AppSettings.state.value.autoActivation &&
+            !com.mindfilter.app.data.LockManager.state.value.enabled
+        ) {
             AppSettings.setProtection(false)
+        }
+
+        // Verrouillage : les écrans Android de désinstallation / désactivation sont surveillés.
+        scope.launch {
+            com.mindfilter.app.data.LockManager.state.collect { l ->
+                val guard = l.guarding
+                if (guard != tamperGuard) {
+                    tamperGuard = guard
+                    applyPackageFilter(settings)
+                }
+            }
         }
 
         scope.launch {
@@ -154,6 +168,15 @@ class MindFilterAccessibilityService : AccessibilityService() {
         event ?: return
         if (!::overlay.isInitialized) return
         val s = settings
+        if (tamperGuard) {
+            val p = event.packageName?.toString()
+            if (p != null && p in TAMPER_PACKAGES && p !in s.monitoredPackages) {
+                if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                    event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                ) requestTamperCheck()
+                return
+            }
+        }
         if (!s.protectionEnabled) return
         // Normalement Android ne nous envoie déjà que les événements des applis cochées
         // (voir applyPackageFilter) ; ce test est une sécurité supplémentaire.
@@ -485,7 +508,8 @@ class MindFilterAccessibilityService : AccessibilityService() {
      */
     private fun applyPackageFilter(s: SettingsState) {
         val info = serviceInfo ?: return
-        val pkgs = if (s.protectionEnabled) s.monitoredPackages + packageName else setOf(packageName)
+        var pkgs = if (s.protectionEnabled) s.monitoredPackages + packageName else setOf(packageName)
+        if (tamperGuard) pkgs = pkgs + TAMPER_PACKAGES
         info.packageNames = pkgs.toTypedArray()
         try {
             serviceInfo = info
@@ -580,12 +604,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
             (overlay.hitsRecent(r.left + r.width() / 4, r.top + r.height() / 4) &&
                 overlay.hitsRecent(r.right - r.width() / 4, r.bottom - r.height() / 4))
         if (!inside) return
-        guardUntil = System.currentTimeMillis() + 1500
+        guardUntil = System.currentTimeMillis() + 2500
         guardNode = src
         guardWindow = src.windowId
-        // L'appui a peut-être déjà ouvert l'écran : vérification immédiate et un peu après.
-        main.postDelayed({ if (guardUntil != 0L) checkGuard() }, 250)
-        main.postDelayed({ if (guardUntil != 0L) checkGuard() }, 700)
+        // L'appui a peut-être déjà ouvert l'écran : vérifications répétées (certains écrans
+        // s'ouvrent lentement, surtout les vidéos).
+        for (d in longArrayOf(150, 350, 700, 1200, 2000)) main.postDelayed({ if (guardUntil != 0L) checkGuard() }, d)
     }
 
     /**
@@ -599,15 +623,16 @@ class MindFilterAccessibilityService : AccessibilityService() {
             return false
         }
         val n = guardNode ?: return false
+        val nowWin = try { rootInActiveWindow?.windowId } catch (_: Exception) { null }
         val gone = try {
-            !n.refresh() || !n.isVisibleToUser ||
-                (rootInActiveWindow?.windowId?.let { it != guardWindow } ?: false)
+            !n.refresh() || !n.isVisibleToUser || (nowWin != null && nowWin != guardWindow)
         } catch (e: Exception) {
             true
         }
         if (!gone) return false
+        val leave = if (nowWin != null && nowWin != guardWindow) nowWin else -1
         clearGuard()
-        autoBack()
+        autoBack(leave)
         return true
     }
 
@@ -688,7 +713,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
         val keysNow = visible.mapTo(HashSet()) { it.key }
         // Changement de page sans signal : tous les masques d'avant ont disparu d'un coup, alors
         // que la page n'a pas défilé (ce n'est donc pas un simple défilement).
-        val still = android.os.SystemClock.uptimeMillis() - lastMoveAt > 700
+        val still = android.os.SystemClock.uptimeMillis() - lastMoveAt > 250
         val vanished = prevVisibleKeys.isNotEmpty() && keysNow.none { it in prevVisibleKeys } && still
         // (seulement si des masques étaient visibles juste avant : ouvrir une appli ou une page
         // sans rien de masqué ne déclenche jamais rien)
@@ -697,7 +722,7 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
         val armedAt = pageGuardAt
         if (armedAt != 0L) {
-            if (now - armedAt > 2500 || now - lastTypingAt < 4000) {
+            if (now - armedAt > 3500 || now - lastTypingAt < 4000) {
                 pageGuardAt = 0L
             } else if (visible.isNotEmpty()) {
                 val firstSeen = synchronized(windowFirstSeen) { windowFirstSeen[winId] } ?: now
@@ -705,7 +730,10 @@ class MindFilterAccessibilityService : AccessibilityService() {
                 val fresh = visible.filter { it.key !in keysBeforeChange }
                 // Nouveau contenu masqué lié à ce qui était masqué juste avant : c'est lui qui
                 // vient d'être ouvert.
-                val related = fresh.any { t -> sigsOf(t).any { it in sigsJustBefore } }
+                val related = fresh.any { t -> sigsOf(t).any { it in sigsJustBefore } } ||
+                    // Nouvelle fenêtre qui affiche EXACTEMENT un contenu masqué juste avant (même
+                    // texte, même image) : c'est la publication touchée, ouverte en grand.
+                    (newWindow && visible.any { t -> sigsOf(t).any { (it.startsWith("t:") || it.startsWith("i:")) && it in sigsJustBefore } })
                 // Nouvelle fenêtre faite surtout de contenus masqués jamais vus.
                 val area = visible.sumOf { t ->
                     val r = Rect(t.rect)
@@ -793,9 +821,12 @@ class MindFilterAccessibilityService : AccessibilityService() {
 
     private fun onWindowChanged() {
         if (guardUntil != 0L && System.currentTimeMillis() <= guardUntil) {
+            val from = guardWindow
             clearGuard()
-            // La publication masquée a été ouverte par un appui : on revient en arrière.
-            autoBack()
+            // La publication masquée a été ouverte par un appui : on revient en arrière (et on
+            // vérifie ensuite que le nouvel écran est bien refermé).
+            val nowWin = try { rootInActiveWindow?.windowId } catch (_: Exception) { null }
+            autoBack(if (nowWin != null && nowWin != from) nowWin else -1)
         } else {
             clearGuard()
         }
@@ -814,7 +845,101 @@ class MindFilterAccessibilityService : AccessibilityService() {
         return (1000f / hz.coerceIn(30f, 120f)).toLong().coerceIn(8L, 33L)
     }
 
+    // ------------------------------------------------------------------------------
+    // Verrouillage : anti-désinstallation / anti-désactivation
+    // ------------------------------------------------------------------------------
+
+    @Volatile private var tamperGuard = false
+    @Volatile private var tamperPending = false
+    @Volatile private var lastTamperAt = 0L
+
+    private fun requestTamperCheck() {
+        if (tamperPending || !::workerHandler.isInitialized) return
+        tamperPending = true
+        workerHandler.postDelayed({
+            tamperPending = false
+            try {
+                checkTamper()
+            } catch (e: Throwable) {
+                com.mindfilter.app.CrashLog.record(this, e, "verrouillage")
+            }
+        }, 60)
+    }
+
+    private fun norm(t: CharSequence?): String =
+        java.text.Normalizer.normalize(t?.toString() ?: "", java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .lowercase()
+            .replace('’', '\'')
+
+    /**
+     * Écran des Réglages Android ou de l'installateur qui concerne MindFilter ET propose une
+     * action dangereuse (désinstaller, forcer l'arrêt, désactiver, effacer les données, couper le
+     * service d'accessibilité) : retour à l'accueil et ouverture de MindFilter sur le code maître.
+     */
+    private fun checkTamper() {
+        if (!com.mindfilter.app.data.LockManager.isGuarding()) return
+        val root = try { rootInActiveWindow } catch (_: Exception) { null } ?: return
+        val pkg = root.packageName?.toString() ?: return
+        if (pkg !in TAMPER_PACKAGES) return
+        val texts = StringBuilder()
+        val queue = ArrayDeque<android.view.accessibility.AccessibilityNodeInfo>()
+        queue.add(root)
+        var seen = 0
+        while (queue.isNotEmpty() && seen < 500) {
+            val n = queue.removeFirst()
+            seen++
+            n.text?.let { texts.append(norm(it)).append('\n') }
+            n.contentDescription?.let { texts.append(norm(it)).append('\n') }
+            n.paneTitle()?.let { texts.append(norm(it)).append('\n') }
+            for (i in 0 until n.childCount) {
+                val c = try { n.getChild(i) } catch (_: Exception) { null } ?: continue
+                queue.add(c)
+            }
+        }
+        val all = texts.toString()
+        val names = listOf(norm(getString(com.mindfilter.app.R.string.app_name)), "mind filter", norm(getString(com.mindfilter.app.R.string.accessibility_label)))
+        if (names.none { it.isNotBlank() && it in all }) return
+        val danger = TAMPER_WORDS.any { it in all } ||
+            names.any { n -> n.isNotBlank() && ("utiliser $n" in all || "use $n" in all || "raccourci $n" in all || "$n shortcut" in all) }
+        if (!danger) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastTamperAt < 800) return
+        lastTamperAt = now
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        try {
+            startActivity(
+                Intent(this, com.mindfilter.app.ui.MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    .putExtra(com.mindfilter.app.ui.EXTRA_TAMPER, true),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun android.view.accessibility.AccessibilityNodeInfo.paneTitle(): CharSequence? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) paneTitle else null
+
     private companion object {
+        /** Réglages Android et installateurs : là où l'on désinstalle ou désactive une appli. */
+        val TAMPER_PACKAGES = setOf(
+            "com.android.settings",
+            "com.google.android.packageinstaller",
+            "com.android.packageinstaller",
+            "com.samsung.android.packageinstaller",
+            "com.google.android.permissioncontroller",
+            "com.android.permissioncontroller",
+            "com.asus.settings",
+        )
+
+        /** Actions dangereuses (texte sans accents, en minuscules). */
+        val TAMPER_WORDS = listOf(
+            "desinstaller", "uninstall", "forcer l'arret", "forcer l arret", "force stop",
+            "desactiver", "deactivate", "effacer les donnees", "vider le stockage",
+            "clear storage", "clear data", "supprimer les donnees",
+        )
+
         const val MIN_INTERVAL_MS = 33L
         /** Tant que des masques sont affichés, vérification de l'appli au premier plan. */
         const val EXIT_WATCH_MS = 120L

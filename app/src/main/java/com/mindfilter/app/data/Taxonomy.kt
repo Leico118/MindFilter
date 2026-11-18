@@ -133,6 +133,11 @@ val EXCLUSIONS = listOf(
     "game of thrones", "the last of us", "plague tale", "sniper elite", "hitman", "killer instinct",
     "assassination classroom", "death note", "attack on titan", "l attaque des titans",
     "dead island", "left 4 dead", "dead space", "evil dead", "deadpool",
+    // Accident évité, sans gravité : rien d'inquiétant.
+    "accident evite", "accident evite de justesse", "evite l accident", "evite de justesse", "evite le pire",
+    "plus de peur que de mal", "sans gravite", "sain et sauf", "saine et sauve", "sains et saufs", "saines et sauves",
+    // Argot : « c'est une tuerie » = c'est excellent.
+    "est une tuerie", "c est une tuerie", "une vraie tuerie", "trop une tuerie", "grave une tuerie",
     "demon slayer", "kimetsu no yaiba", "demon s souls", "demons souls", "devil may cry",
     "demon hunter", "demon hunters", "kpop demon hunters", "petit demon", "petite demone",
 )
@@ -692,6 +697,19 @@ private fun catDeces(): Category =
                     "deces.disparitions.disparus", "Personnes disparues",
                     s("disparu depuis", "disparue depuis", "porté disparu", "portée disparue", "portés disparus", "avis de recherche", "appel à témoins", "toujours introuvable", "personne disparue", "personnes disparues", "alerte enlèvement"),
                     m("introuvable*"),
+                    s(
+                        "fillette disparue", "enfant disparu", "enfant disparue", "enfants disparus", "adolescente disparue",
+                        "adolescent disparu", "jeune fille disparue", "jeune homme disparu", "garçon disparu", "fillette introuvable",
+                        "disparition d'une fillette", "disparition d'un enfant", "disparition d'une adolescente",
+                        "disparition d'un adolescent", "disparition d'une jeune", "disparition d'un jeune",
+                    ),
+                    // Disparition + enquête / recherches : c'est bien une disparition (et non un décès
+                    // « disparu » au sens de « mort »).
+                    all(
+                        STRONG,
+                        listOf("disparu", "disparue", "disparus", "disparues", "disparition*"),
+                        listOf("police*", "gendarmerie", "recherche*", "rechercher", "recherché*", "battue*", "témoin*", "signalement", "fillette*", "enfant*", "adolescent*", "adolescente*", "fugue*", "enquête*", "plongeurs", "chiens", "hélicoptère*"),
+                    ),
                 ),
                 t(
                     "deces.disparitions.inquietantes", "Disparitions inquiétantes",

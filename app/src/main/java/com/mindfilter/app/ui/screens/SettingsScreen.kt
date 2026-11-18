@@ -118,6 +118,8 @@ fun SettingsScreen(resumeTick: Int) {
     ) {
         item { ScreenTitle("Réglages") }
 
+        item { LockCard(resumeTick) }
+
         item {
             GlassCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -536,6 +538,89 @@ private fun UpdateNotificationRow() {
                 com.mindfilter.app.update.UpdateNotifier.markAsked(ctx)
                 launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+}
+
+@Composable
+private fun LockCard(resumeTick: Int) {
+    val g = LocalGlass.current
+    val ctx = LocalContext.current
+    val lock by com.mindfilter.app.data.LockManager.state.collectAsStateWithLifecycle()
+    val bioAvailable = remember { com.mindfilter.app.ui.biometricAvailable(ctx) }
+    val adminActive = remember(resumeTick, lock) { com.mindfilter.app.service.MindFilterAdminReceiver.isActive(ctx) }
+    GlassCard {
+        Header(
+            Icons.Filled.Lock,
+            g.accent,
+            "Verrouillage",
+            if (lock.enabled) "Code maître actif · les modifications demandent le code" else "Protéger les réglages par un code maître",
+        )
+        Spacer(Modifier.height(12.dp))
+        if (!lock.enabled) {
+            PillButton("Définir un code maître", Modifier.fillMaxWidth()) { com.mindfilter.app.ui.UiRequests.pinSetup.value = true }
+            return@GlassCard
+        }
+        if (bioAvailable) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Déverrouiller par empreinte", color = g.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = lock.biometric,
+                    onCheckedChange = { v -> com.mindfilter.app.data.LockManager.setBiometric(v) },
+                    colors = SwitchDefaults.colors(checkedTrackColor = g.positive, checkedThumbColor = Color.White),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Anti-désinstallation", color = g.text, fontSize = 15.sp)
+                Text(
+                    when {
+                        !lock.antiTamper -> "Désinstallation, arrêt forcé et désactivation libres"
+                        adminActive -> "Désinstallation, arrêt forcé et désactivation bloqués sans le code"
+                        else -> "Administrateur de l'appareil à confirmer"
+                    },
+                    color = if (lock.antiTamper && !adminActive) g.warning else g.textSecondary,
+                    fontSize = 12.sp,
+                )
+            }
+            Switch(
+                checked = lock.antiTamper,
+                onCheckedChange = { v ->
+                    com.mindfilter.app.data.LockManager.setAntiTamper(v)
+                    if (v) {
+                        if (!com.mindfilter.app.service.MindFilterAdminReceiver.isActive(ctx)) {
+                            try {
+                                ctx.startActivity(com.mindfilter.app.service.MindFilterAdminReceiver.activationIntent(ctx))
+                            } catch (_: Exception) {
+                            }
+                        }
+                    } else {
+                        com.mindfilter.app.service.MindFilterAdminReceiver.deactivate(ctx)
+                    }
+                },
+                colors = SwitchDefaults.colors(checkedTrackColor = g.positive, checkedThumbColor = Color.White),
+            )
+        }
+        if (lock.antiTamper && !adminActive) {
+            Spacer(Modifier.height(8.dp))
+            PillButton("Confirmer l'administrateur", Modifier.fillMaxWidth()) {
+                try {
+                    ctx.startActivity(com.mindfilter.app.service.MindFilterAdminReceiver.activationIntent(ctx))
+                } catch (_: Exception) {
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PillButton("Verrouiller", Modifier.weight(1f)) { com.mindfilter.app.data.LockManager.lock() }
+            PillButton("Changer le code", Modifier.weight(1f), filled = false) { com.mindfilter.app.ui.UiRequests.pinSetup.value = true }
+        }
+        Spacer(Modifier.height(8.dp))
+        PillButton("Supprimer le code maître", Modifier.fillMaxWidth(), filled = false) {
+            com.mindfilter.app.service.MindFilterAdminReceiver.deactivate(ctx)
+            com.mindfilter.app.data.LockManager.disable()
         }
     }
 }

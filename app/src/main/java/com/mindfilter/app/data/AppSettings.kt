@@ -180,6 +180,7 @@ object AppSettings {
     val tutorial: StateFlow<Boolean> = _tutorial.asStateFlow()
 
     fun init(context: Context) {
+        LockManager.init(context)
         if (::prefs.isInitialized) return
         prefs = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val freshInstall = !prefs.getBoolean("initialized", false)
@@ -265,6 +266,8 @@ object AppSettings {
     }
 
     fun update(transform: (SettingsState) -> SettingsState) {
+        // Verrouillé par le code maître : aucune modification possible.
+        if (!LockManager.canEdit()) return
         val next = transform(_state.value)
         if (next != _state.value) {
             _state.value = next

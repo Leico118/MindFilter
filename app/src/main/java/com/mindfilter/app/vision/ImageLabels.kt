@@ -27,12 +27,49 @@ object ImageLabels {
         SPIDERS.forEach { put(it, Rule("horreur.phobies.araignees", "Araignées (image)", 0.45f)) }
         SNAKES.forEach { put(it, Rule("horreur.phobies.serpents", "Serpents (image)", 0.45f)) }
         put("cockroach", Rule("horreur.phobies.insectes", "Insectes (image)", 0.5f))
-        WEAPONS.forEach { put(it, Rule("violence.collectives.fusillades", "Armes (image)", 0.55f)) }
-        WAR.forEach { put(it, Rule("guerre.conflits.guerres", "Guerre (image)", 0.55f)) }
-        put("volcano", Rule("catastrophes.geo.volcans", "Volcans (image)", 0.6f))
-        put("ambulance", Rule("sante.urgences.hospit", "Urgences (image)", 0.6f))
-        put("stretcher", Rule("sante.urgences.hospit", "Urgences (image)", 0.6f))
+        WEAPONS.forEach { put(it, Rule("violence.collectives.fusillades", "Armes (image)", 0.70f)) }
+        WAR.forEach { put(it, Rule("guerre.conflits.guerres", "Guerre (image)", 0.80f)) }
+        put("volcano", Rule("catastrophes.geo.volcans", "Volcans (image)", 0.75f))
+        // « ambulance » et « stretcher » retirés : un camion (même en LEGO) ou un brancard ne
+        // montrent pas une urgence. Le texte de la publication s'en charge.
     }
+
+    /**
+     * Image « jouet / dessin » : beaucoup de couleurs vives et franches, de plusieurs teintes
+     * différentes (LEGO, Playmobil, dessin animé, illustration). Une vraie scène d'accident ou
+     * de guerre est bien plus terne. Le feu (rouge-orange-jaune) ne compte que pour 2 teintes.
+     */
+    fun toyLike(img: android.graphics.Bitmap): Boolean {
+        val small = try {
+            android.graphics.Bitmap.createScaledBitmap(img, 48, 48, true)
+        } catch (_: Exception) {
+            return false
+        }
+        val px = IntArray(48 * 48)
+        try {
+            small.getPixels(px, 0, 48, 0, 0, 48, 48)
+        } catch (_: Exception) {
+            return false
+        } finally {
+            if (small !== img) small.recycle()
+        }
+        val hsv = FloatArray(3)
+        val bins = IntArray(6)
+        var vivid = 0
+        for (c in px) {
+            android.graphics.Color.colorToHSV(c, hsv)
+            if (hsv[1] >= 0.55f && hsv[2] >= 0.35f) {
+                vivid++
+                bins[((hsv[0] + 30f) % 360f / 60f).toInt().coerceIn(0, 5)]++
+            }
+        }
+        if (vivid < px.size * TOY_VIVID) return false
+        val hues = bins.count { it >= vivid * 0.10f }
+        return hues >= 3
+    }
+
+    /** Part minimale de pixels vifs pour une image « jouet / dessin ». */
+    const val TOY_VIVID = 0.30f
 
     fun ruleFor(label: String): Rule? = rules[label.trim().lowercase()]
 

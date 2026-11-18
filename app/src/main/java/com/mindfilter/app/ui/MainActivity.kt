@@ -1,7 +1,6 @@
 package com.mindfilter.app.ui
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -64,7 +63,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import com.mindfilter.app.update.UpdateNotifier
 import com.mindfilter.app.update.Updater
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     /** Incrémenté à chaque retour dans l'appli pour rafraîchir l'état des autorisations. */
     private val resumeTick = MutableStateFlow(0)
@@ -96,6 +95,10 @@ class MainActivity : ComponentActivity() {
 
     /** Ouverture depuis la notification « mise à jour disponible » : on va droit à la mise à jour. */
     private fun handleIntent(intent: android.content.Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_TAMPER, false) == true) {
+            intent.removeExtra(EXTRA_TAMPER)
+            UiRequests.tamperNotice.value = true
+        }
         if (intent?.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_UPDATE, false) == true) {
             intent.removeExtra(UpdateNotifier.EXTRA_OPEN_UPDATE)
             UiRequests.openUpdate.value = true
@@ -121,8 +124,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Ouverture par le service : une action protégée (désinstallation…) a été bloquée. */
+const val EXTRA_TAMPER = "com.mindfilter.app.TAMPER"
+
 /** Demandes ponctuelles entre l'activité et l'interface. */
 object UiRequests {
+    /** Afficher l'écran de création / changement du code maître. */
+    val pinSetup = MutableStateFlow(false)
+    /** Une action protégée vient d'être bloquée par le service. */
+    val tamperNotice = MutableStateFlow(false)
     /** Aller à la carte « Mise à jour » et lancer la vérification. */
     val openUpdate = MutableStateFlow(false)
     /** Ouvrir l'écran « Apprentissage » du mode développeur. */
@@ -230,7 +240,20 @@ private fun MindFilterRoot(resumeTick: Int) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-        if (tutorialOn) {
+        val pinSetup by UiRequests.pinSetup.collectAsStateWithLifecycle()
+        if (pinSetup) {
+            PinSetupScreen(onDone = { UiRequests.pinSetup.value = false })
+        }
+        // Code maître : toute l'appli est masquée tant qu'il n'a pas été saisi.
+        val lock by com.mindfilter.app.data.LockManager.state.collectAsStateWithLifecycle()
+        val tamper by UiRequests.tamperNotice.collectAsStateWithLifecycle()
+        if (lock.locked) {
+            LockGate(if (tamper) "Cette action est protégée par le code maître." else null)
+        }
+        LaunchedEffect(lock.locked) {
+            if (!lock.locked) UiRequests.tamperNotice.value = false
+        }
+        if (tutorialOn && !lock.locked) {
             TutorialOverlay(
                 step = tutorialStep,
                 onNext = {

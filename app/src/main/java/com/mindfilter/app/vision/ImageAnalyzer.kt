@@ -376,6 +376,9 @@ class ImageAnalyzer(
         // Deuxième avis : les 5 objets les plus probables (calculé une seule fois).
         val top = objects?.takeIf { it.available }?.recognize(img, top = 5).orEmpty()
         val safeScene = ImageLabels.safeSceneScore(top)
+        // Jouet / dessin (LEGO, Playmobil, dessin animé…) : jamais un accident, une guerre ou
+        // une urgence. (Ne concerne pas les contenus pour adultes : un dessin peut l'être.)
+        val toy by lazy { ImageLabels.toyLike(img) }
         val safeName = top.firstOrNull { ImageLabels.isSafeScene(it.first) }?.first
         if (top.isNotEmpty()) {
             VisionStats.lastObjects = top.take(3).joinToString(", ") { "${it.first} ${(it.second * 100).toInt()} %" }
@@ -426,6 +429,7 @@ class ImageAnalyzer(
                 val confirmed = when {
                     // Jouet, paysage, monument, plat… nettement reconnu : jamais sur une ressemblance.
                     safeScene >= ImageLabels.SCENE_VETO -> false
+                    !m.theme.startsWith("adulte.") && toy -> false
                     // Contenus pour adultes : le détecteur de nudité doit confirmer (même faiblement),
                     // sauf ressemblance vraiment très forte.
                     m.theme.startsWith("adulte.") && nsfwScore >= 0f ->
@@ -442,7 +446,7 @@ class ImageAnalyzer(
                     )
                 }
                 VisionStats.lastRejected = "ressemblance ${(m.similarity * 100).toInt()} % écartée" +
-                    (safeName?.let { " ($it)" } ?: if (nsfwScore >= 0f) " (détecteur ${(nsfwScore * 100).toInt()} %)" else "")
+                    (safeName?.let { " ($it)" } ?: if (!m.theme.startsWith("adulte.") && toy) " (jouet / dessin)" else if (nsfwScore >= 0f) " (détecteur ${(nsfwScore * 100).toInt()} %)" else "")
             }
         }
         // Objets reconnus : seulement l'objet le plus probable, s'il est très net, nettement
@@ -453,7 +457,8 @@ class ImageAnalyzer(
             if (rule != null && rule.themeId in themes &&
                 p >= maxOf(rule.minProbability, ImageLabels.MIN_CONFIDENCE) &&
                 p - second >= ImageLabels.MIN_LEAD &&
-                safeScene < ImageLabels.SCENE_VETO
+                safeScene < ImageLabels.SCENE_VETO &&
+                !toy
             ) {
                 return Verdict(rule.label, "objet reconnu : $name (${(p * 100).toInt()} %)", vector = mainVector)
             }
